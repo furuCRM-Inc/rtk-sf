@@ -127,23 +127,34 @@ run_index() {
 # ---------------------------------------------------------------------------
 # Step 5: Patch CLAUDE.md so Claude Code uses rtk-sf tools automatically
 # ---------------------------------------------------------------------------
-RTK_CLAUDE_MARKER="## Code Search — Use rtk-sf First"
+RTK_CLAUDE_MARKER="## Code Search"
+RTK_CLAUDE_MARKER_V4="get_class_skeleton"
 
 patch_claude_md() {
   local claude_md="CLAUDE.md"
 
-  # Skip if already patched
-  if [ -f "$claude_md" ] && grep -q "$RTK_CLAUDE_MARKER" "$claude_md" 2>/dev/null; then
-    success "CLAUDE.md already has rtk-sf instructions. Skipping."
+  # Already on v0.4.0+ — skip
+  if [ -f "$claude_md" ] && grep -q "$RTK_CLAUDE_MARKER_V4" "$claude_md" 2>/dev/null; then
+    success "CLAUDE.md already has rtk-sf v0.4 instructions. Skipping."
     return
+  fi
+
+  # v0.3.0 block present — remove it so we can replace with v0.4 block
+  if [ -f "$claude_md" ] && grep -q "$RTK_CLAUDE_MARKER" "$claude_md" 2>/dev/null; then
+    warn "Upgrading CLAUDE.md from rtk-sf v0.3 → v0.4 tool list..."
+    # Remove the old rtk-sf block (from marker line to next ## heading or EOF)
+    local tmp
+    tmp=$(mktemp)
+    awk '/## Code Search/{found=1} found && /^## / && !/## Code Search/{found=0} !found' "$claude_md" > "$tmp"
+    mv "$tmp" "$claude_md"
   fi
 
   local block
   block=$(cat <<'BLOCK'
 
-## Code Search — Use rtk-sf First (Required)
+## Code Search & Data — Use rtk-sf First (Required)
 
-This project is indexed by **rtk-sf**. Always use the MCP tools before reading raw source files:
+This project is indexed by **rtk-sf**. Always use the MCP tools before reading raw files or calling sf CLI:
 
 | Task | Tool to call |
 |---|---|
@@ -152,8 +163,22 @@ This project is indexed by **rtk-sf**. Always use the MCP tools before reading r
 | Blast-radius before editing | `get_relations(component_name)` |
 | List all Apex classes / objects / flows | `list_components(type)` |
 | Write discovered business logic back | `annotate_component(component_name, key, value)` |
+| Read an Apex class before editing (surgical) | `get_class_skeleton(component_name, focus_methods)` |
+| Deploy / retrieve / run tests silently | `sf_command(action, target_org, ...)` |
+| Get object field list for data creation | `get_object_schema(object_name)` |
+| Inspect existing records (sample only) | `soql_query(query, target_org, sample_size)` |
 
-**Never** open a raw `.cls`, `.object-meta.xml`, or `.flow-meta.xml` unless the compressed spec is missing or insufficient.
+**Never** do these directly — use the tool instead:
+- ❌ `Read` a raw `.cls` file → ✅ `get_class_skeleton`
+- ❌ `sf sobject describe` → ✅ `get_object_schema`
+- ❌ `sf data query` → ✅ `soql_query`
+- ❌ `sf project deploy start` → ✅ `sf_command(action="deploy")`
+
+If search returns no results, re-index with:
+```bash
+python3 -m rtk_sf index
+```
+Do NOT use `npx rtk-sf` — rtk-sf is a Python package, not npm.
 
 BLOCK
 )
