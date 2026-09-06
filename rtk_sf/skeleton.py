@@ -196,6 +196,29 @@ def build_skeleton(source: str, focus_methods: list[str] | None = None) -> str:
 # File-level entry point
 # ---------------------------------------------------------------------------
 
+def _resolve_source_path(file_path_str: str, project_root: Path) -> Path | None:
+    """Resolve a spec file path to an existing Path.
+
+    Handles both absolute paths (from newer indexer runs) and bare filenames
+    (from older runs where only the basename was stored).
+    """
+    candidate = Path(file_path_str)
+    if candidate.is_absolute() and candidate.exists():
+        return candidate
+
+    # Relative path — try project root first, then glob for the filename
+    relative = project_root / file_path_str
+    if relative.exists():
+        return relative
+
+    filename = candidate.name
+    for found in project_root.rglob(filename):
+        if found.is_file():
+            return found
+
+    return None
+
+
 def skeleton_from_spec(
     component_name: str,
     rtk_dir: Path,
@@ -223,8 +246,9 @@ def skeleton_from_spec(
     if not file_path_str:
         return None
 
-    src_path = Path(file_path_str)
-    if not src_path.exists():
+    project_root = rtk_dir.parent
+    src_path = _resolve_source_path(file_path_str, project_root)
+    if src_path is None:
         return None
 
     source = src_path.read_text(encoding="utf-8", errors="replace")
