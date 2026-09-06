@@ -6,10 +6,13 @@ such as Claude Code and Cline can query Salesforce metadata specs without
 reading raw source files.
 
 Tools exposed:
-    query_compressed_spec(component_name)  → YAML spec string
-    search_codebase(query, limit)          → FTS5 search results
-    get_relations(component_name)          → upstream/downstream graph
-    list_components(type)                  → list of indexed components
+    query_compressed_spec(component_name)       → YAML spec string
+    search_codebase(query, limit)               → FTS5 search results
+    get_relations(component_name)               → upstream/downstream graph
+    list_components(type)                       → list of indexed components
+    annotate_component(component_name, key, ..) → write discovered business logic
+    get_class_skeleton(component_name, focus)   → surgical Apex class skeleton
+    sf_command(action, ...)                     → silent sf CLI execution
 
 Protocol:
     - Reads JSON-RPC 2.0 requests line-by-line from stdin.
@@ -111,6 +114,81 @@ _TOOLS: list[dict[str, Any]] = [
                     "default": "all",
                 }
             },
+        },
+    },
+    {
+        "name": "get_class_skeleton",
+        "description": (
+            "Return a surgical skeleton of an Apex class: class-level variables, "
+            "constructor bodies, and any focus_methods are shown in full; all other "
+            "method bodies are collapsed to '/* Logic Hidden */'. "
+            "Use this instead of reading the raw .cls file — a 10,000-token class "
+            "becomes ~300 tokens of context-perfect scaffold."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "component_name": {
+                    "type": "string",
+                    "description": "Apex class name, e.g. 'AccountService'.",
+                },
+                "focus_methods": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Method names whose bodies should be shown in full. "
+                        "Constructors are always shown. All other methods are collapsed."
+                    ),
+                    "default": [],
+                },
+            },
+            "required": ["component_name"],
+        },
+    },
+    {
+        "name": "sf_command",
+        "description": (
+            "Execute a Salesforce CLI command silently and return a condensed 1–4 line summary. "
+            "Runs 'sf project deploy/retrieve' or 'sf apex run test' with --json in the background, "
+            "parses the full response, and suppresses the raw output tables. "
+            "Token impact: cuts terminal response overhead by ~99%."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "description": "SF action to run.",
+                    "enum": ["deploy", "retrieve", "run_test", "describe", "validate"],
+                },
+                "target_org": {
+                    "type": "string",
+                    "description": "Org alias or username (e.g. 'dev01').",
+                },
+                "source_dir": {
+                    "type": "string",
+                    "description": "Source directory path (e.g. 'force-app').",
+                },
+                "metadata": {
+                    "type": ["string", "array"],
+                    "description": "Metadata type(s) to deploy/retrieve (e.g. 'ApexClass:AccountService').",
+                },
+                "test_level": {
+                    "type": "string",
+                    "description": "Test level for deploy/run_test.",
+                    "enum": ["NoTestRun", "RunLocalTests", "RunAllTestsInOrg", "RunSpecifiedTests"],
+                },
+                "class_names": {
+                    "type": ["string", "array"],
+                    "description": "Apex test class name(s) for run_test action.",
+                },
+                "wait": {
+                    "type": "integer",
+                    "description": "Minutes to wait for async operations (default: 10).",
+                    "default": 10,
+                },
+            },
+            "required": ["action"],
         },
     },
     {
@@ -241,6 +319,10 @@ class MCPServer:
                 result = self._tool_list_components(arguments)
             elif tool_name == "annotate_component":
                 result = self._tool_annotate(arguments)
+            elif tool_name == "get_class_skeleton":
+                result = self._tool_get_skeleton(arguments)
+            elif tool_name == "sf_command":
+                result = self._tool_sf_command(arguments)
             else:
                 self._write(self._error(request_id, -32601, f"Unknown tool: {tool_name}"))
                 return
@@ -319,6 +401,41 @@ class MCPServer:
             f"Component '{component_name}' not found in index. "
             "Run `rtk-sf index` first."
         )
+
+    def _tool_get_skeleton(self, args: dict) -> str:
+        component_name = args.get("component_name", "").strip()
+        focus_methods = args.get("focus_methods") or []
+        if not component_name:
+            return "Error: component_name is required."
+
+        from rtk_sf.skeleton import skeleton_from_spec
+
+        rtk_dir = self.project_root / ".rtk-sf"
+        result = skeleton_from_spec(component_name, rtk_dir, focus_methods)
+        if result is None:
+            # Try fuzzy match via search
+            search = self._get_search()
+            hits = search.search(component_name, limit=1)
+            if hits:
+                best = hits[0]["name"]
+                result = skeleton_from_spec(best, rtk_dir, focus_methods)
+                if result:
+                    return f"# Closest match: {best}\n\n{result}"
+            return (
+                f"Component '{component_name}' not found or is not an Apex class.\n"
+                "Run `rtk-sf index` to update the index."
+            )
+        return result
+
+    def _tool_sf_command(self, args: dict) -> str:
+        action = args.get("action", "").strip()
+        if not action:
+            return "Error: action is required."
+
+        from rtk_sf.sf_runner import run_sf_command
+
+        run_args = {k: v for k, v in args.items() if k != "action"}
+        return run_sf_command(action, run_args)
 
     def _tool_search(self, args: dict) -> str:
         query = args.get("query", "").strip()
