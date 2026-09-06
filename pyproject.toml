@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.32.0"]
 build-backend = "hatchling.build"
 
 [project]
 name = "rtk-sf"
-version = "0.1.0"
+version = "0.3.0"
 description = "Zero-Token Knowledge & Visual Live-Mapping Layer for Salesforce AI Agents"
 readme = "README.md"
 license = { text = "MIT" }
@@ -14,7 +14,7 @@ keywords = [
     "mcp",
     "ai-agents",
     "claude",
-    "cline",
+    "claude-code",
     "apex",
     "token-optimization",
     "developer-tools",
@@ -33,18 +33,18 @@ classifiers = [
 ]
 requires-python = ">=3.9"
 dependencies = [
-    "watchdog>=3.0.0",
-    "pyyaml>=6.0.0",
+    "watchdog>=6.0.0",
+    "pyyaml>=6.0.3",
 ]
 
 [project.optional-dependencies]
-vector = ["numpy>=1.24.0"]
+vector = ["numpy>=2.5.2"]
 dev = [
-    "pytest>=7.4.0",
-    "pytest-cov>=4.1.0",
-    "black>=23.0.0",
-    "ruff>=0.1.0",
-    "mypy>=1.5.0",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "black>=26.5.1",
+    "ruff>=0.16.6",
+    "mypy>=2.3.1",
 ]
 
 [project.scripts]

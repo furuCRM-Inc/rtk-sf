@@ -150,7 +150,7 @@ print_next_steps() {
   echo ""
   info "Docs: https://github.com/furuCRM/rtk-sf"
   echo ""
-  echo -e "Built with love by ${BOLD}furuCRM Inc.${NC} — https://furucrm.com"
+  echo -e "Built with love by ${BOLD}furuCRM Inc.${NC} — https://www.furucrm.com"
   echo ""
 }
 

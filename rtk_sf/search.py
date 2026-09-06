@@ -83,7 +83,8 @@ CREATE VIRTUAL TABLE IF NOT EXISTS components_fts USING fts5(
     type,
     raw_text,
     content='components',
-    content_rowid='id'
+    content_rowid='id',
+    tokenize="trigram"
 );
 
 CREATE TABLE IF NOT EXISTS embeddings (
@@ -91,6 +92,17 @@ CREATE TABLE IF NOT EXISTS embeddings (
     vocab_json   TEXT NOT NULL,
     vector_json  TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS annotations (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    component_id INTEGER NOT NULL REFERENCES components(id) ON DELETE CASCADE,
+    key          TEXT NOT NULL,
+    value        TEXT NOT NULL,
+    source       TEXT NOT NULL DEFAULT 'manual',
+    created_at   REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_annotations_component ON annotations(component_id);
 
 -- Triggers to keep FTS in sync
 CREATE TRIGGER IF NOT EXISTS components_ai AFTER INSERT ON components BEGIN
@@ -244,6 +256,92 @@ class SearchEngine:
         conn.commit()
 
     # ------------------------------------------------------------------
+    # Annotations — reverse-record discovered business logic
+    # ------------------------------------------------------------------
+
+    def add_annotation(
+        self,
+        component_name: str,
+        key: str,
+        value: str,
+        source: str = "manual",
+    ) -> bool:
+        """
+        Record a discovered business rule or context note on a component.
+
+        The annotation text is appended to the component's FTS raw_text so
+        it becomes searchable immediately without a full re-index.
+
+        Args:
+            component_name: Exact component name (e.g. "Application__c").
+            key: Short label for the annotation (e.g. "business_rule", "condition").
+            value: Free-text description of the discovered logic.
+            source: Origin tag (e.g. "ai_discovery", "manual", "code_review").
+
+        Returns:
+            True if the annotation was saved; False if component not found.
+        """
+        import time
+
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT id FROM components WHERE name = ?", (component_name,)
+        ).fetchone()
+        if not row:
+            return False
+
+        component_id = row["id"]
+        conn.execute(
+            "INSERT INTO annotations (component_id, key, value, source, created_at) VALUES (?, ?, ?, ?, ?)",
+            (component_id, key, value, source, time.time()),
+        )
+
+        # Append annotation text to raw_text so FTS index reflects it
+        combined = f"\n\n[annotation:{key}] {value}"
+        conn.execute(
+            "UPDATE components SET raw_text = raw_text || ? WHERE id = ?",
+            (combined.lower(), component_id),
+        )
+        conn.execute(
+            "UPDATE components_fts SET raw_text = raw_text || ? WHERE rowid = ?",
+            (combined.lower(), component_id),
+        )
+
+        conn.commit()
+        return True
+
+    def get_annotations(self, component_name: str) -> list[dict[str, Any]]:
+        """
+        Return all annotations for a component.
+
+        Args:
+            component_name: Exact component name.
+
+        Returns:
+            List of dicts with keys: key, value, source, created_at.
+        """
+        conn = self._get_conn()
+        rows = conn.execute(
+            """
+            SELECT a.key, a.value, a.source, a.created_at
+            FROM annotations a
+            JOIN components c ON c.id = a.component_id
+            WHERE c.name = ?
+            ORDER BY a.created_at ASC
+            """,
+            (component_name,),
+        ).fetchall()
+        return [
+            {
+                "key": r["key"],
+                "value": r["value"],
+                "source": r["source"],
+                "created_at": r["created_at"],
+            }
+            for r in rows
+        ]
+
+    # ------------------------------------------------------------------
     # Search
     # ------------------------------------------------------------------
 
@@ -263,24 +361,8 @@ class SearchEngine:
         """
         conn = self._get_conn()
 
-        # Sanitize query for FTS5 (escape double-quotes)
-        safe_query = query.replace('"', '""')
-
-        try:
-            rows = conn.execute(
-                """
-                SELECT c.name, c.type, c.file_path, c.yaml_spec, c.raw_text,
-                       fts.rank AS fts_score
-                FROM components_fts fts
-                JOIN components c ON c.id = fts.rowid
-                WHERE components_fts MATCH ?
-                ORDER BY fts.rank
-                LIMIT ?
-                """,
-                (safe_query, limit * 3),  # over-fetch for re-ranking
-            ).fetchall()
-        except sqlite3.OperationalError:
-            # FTS5 query syntax error — fall back to LIKE search
+        # Trigram FTS5 needs ≥3 characters; use LIKE directly for short queries
+        if len(query.strip()) < 3:
             like_q = f"%{query}%"
             rows = conn.execute(
                 """
@@ -291,6 +373,35 @@ class SearchEngine:
                 """,
                 (like_q, like_q, limit * 3),
             ).fetchall()
+        else:
+            # Sanitize query for FTS5 (escape double-quotes)
+            safe_query = query.replace('"', '""')
+
+            try:
+                rows = conn.execute(
+                    """
+                    SELECT c.name, c.type, c.file_path, c.yaml_spec, c.raw_text,
+                           fts.rank AS fts_score
+                    FROM components_fts fts
+                    JOIN components c ON c.id = fts.rowid
+                    WHERE components_fts MATCH ?
+                    ORDER BY fts.rank
+                    LIMIT ?
+                    """,
+                    (safe_query, limit * 3),  # over-fetch for re-ranking
+                ).fetchall()
+            except sqlite3.OperationalError:
+                # FTS5 query syntax error — fall back to LIKE search
+                like_q = f"%{query}%"
+                rows = conn.execute(
+                    """
+                    SELECT name, type, file_path, yaml_spec, raw_text, 0 AS fts_score
+                    FROM components
+                    WHERE name LIKE ? OR raw_text LIKE ?
+                    LIMIT ?
+                    """,
+                    (like_q, like_q, limit * 3),
+                ).fetchall()
 
         results: list[dict[str, Any]] = []
         for row in rows:
@@ -444,6 +555,38 @@ class SearchEngine:
             "downstream": downstream,
         }
 
+    @staticmethod
+    def _camel_split(text: str) -> str:
+        """
+        Insert spaces before uppercase letters to split camelCase/PascalCase
+        identifiers into searchable words.
+
+        Example: "ExamTicketDownloadController" → "Exam Ticket Download Controller"
+        """
+        import re
+        # Insert space before uppercase letter followed by lowercase
+        spaced = re.sub(r"(?<=[a-z0-9])([A-Z])", r" \1", text)
+        # Insert space between consecutive uppercase and then lowercase (e.g. XMLParser)
+        spaced = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", spaced)
+        # Also split on underscores and hyphens
+        spaced = re.sub(r"[_\-]", " ", spaced)
+        return spaced
+
+    def _build_raw_text(self, name: str, yaml_text: str) -> str:
+        """
+        Build an FTS-friendly raw text blob from YAML spec + split identifiers.
+
+        Appends camelCase-split versions of all identifiers so that FTS5 can
+        match individual word fragments (e.g. 'exam' matches
+        'ExamTicketDownloadController').
+        """
+        import re
+        # Extract all identifiers from the YAML
+        identifiers = re.findall(r"[A-Za-z][A-Za-z0-9_]{3,}", yaml_text)
+        unique = list(dict.fromkeys(identifiers))
+        split_words = " ".join(self._camel_split(ident) for ident in unique[:200])
+        return f"{yaml_text}\n\n{split_words}".lower()
+
     def sync_from_specs(self) -> int:
         """
         Populate the SQLite database from YAML spec files on disk.
@@ -468,13 +611,13 @@ class SearchEngine:
                 component_type = data.get("type", "Unknown")
                 file_path = data.get("file", "")
 
-                # Use YAML as both spec and raw text for FTS
+                raw_text = self._build_raw_text(name, yaml_text)
                 self.upsert_component(
                     name=name,
                     component_type=component_type,
                     file_path=file_path,
                     yaml_spec=yaml_text,
-                    raw_text=yaml_text,
+                    raw_text=raw_text,
                     updated_at=spec_file.stat().st_mtime,
                 )
                 count += 1

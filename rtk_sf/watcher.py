@@ -29,8 +29,8 @@ except ImportError:
     )
 
 
-WATCHED_EXTENSIONS = {".cls", ".xml"}
-IGNORED_SUFFIXES = {".cls-meta.xml"}
+WATCHED_EXTENSIONS = {".cls", ".xml", ".trigger", ".page", ".component"}
+IGNORED_SUFFIXES = {".cls-meta.xml", ".trigger-meta.xml"}
 
 
 # ---------------------------------------------------------------------------

@@ -173,4 +173,4 @@ Open a [Discussion](https://github.com/furuCRM/rtk-sf/discussions) or reach out 
 
 ---
 
-Built with love by [furuCRM Inc.](https://furucrm.com)
+Built with love by [furuCRM Inc.](https://www.furucrm.com)

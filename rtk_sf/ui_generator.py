@@ -24,7 +24,7 @@ RELATIONS_FILE = "relations.json"
 SPECS_DIR = "specs"
 
 # Cytoscape.js CDN URL (loaded inline via CDN; no bundling required)
-CYTOSCAPE_CDN = "https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"
+CYTOSCAPE_CDN = "https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.34.2/cytoscape.min.js"
 
 # furuCRM brand colors
 COLOR_PRIMARY = "#0066cc"

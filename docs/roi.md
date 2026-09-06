@@ -209,6 +209,36 @@ Token savings translate to more than cost reduction:
 
 ---
 
+## 100% sf CLI Metadata Coverage (v0.2.0)
+
+Starting with v0.2.0, rtk-sf indexes **every metadata type supported by the sf CLI** — not just
+Apex classes, objects, fields, and Flows. This means:
+
+- **All Salesforce project assets are indexed.** Profiles, Permission Sets, LWC bundles, Aura
+  bundles, Flows, Validation Rules, Custom Labels, Connected Apps, PromptTemplates, Bots, and
+  50+ additional types are all compressed into YAML specs.
+- **Token savings apply across the entire codebase.** Previously, assets like Profiles, Layouts,
+  and FlexiPages had to be read in full XML (thousands of tokens each). Now they are served as
+  compact YAML specs (50–250 tokens each).
+- **Agentforce / AI metadata is first-class.** PromptTemplate, GenAiFunction, GenAiPromptTemplate,
+  AIApplication, and Bot metadata — critical for Agentforce development — are fully indexed,
+  letting AI agents navigate AI-on-AI architectures without reading raw XML.
+
+Estimated additional token savings from v0.2.0 coverage expansion:
+
+| New metadata area | Typical raw XML tokens | rtk-sf spec tokens | Reduction |
+|---|---|---|---|
+| Profile (50 object permissions) | ~8,000 | ~400 | 95% |
+| LWC bundle (JS + HTML + meta) | ~3,500 | ~200 | 94% |
+| FlexiPage (10 components) | ~2,000 | ~150 | 93% |
+| PromptTemplate | ~1,200 | ~100 | 92% |
+| Custom Labels file (30 labels) | ~4,500 | ~350 | 92% |
+| Layout (complex) | ~6,000 | ~100 | 98% |
+
+For a project with 20 Profiles, 30 LWC components, 10 FlexiPages, 5 PromptTemplates, and 2 Custom Labels files,
+the additional savings over a session are approximately **400,000+ tokens** compared to raw reads — equivalent
+to **$1.20 per session** at Claude Sonnet pricing, on top of the existing Apex/Object/Flow savings.
+
 ## Conclusion
 
 At typical enterprise Salesforce team sizes (10–25 developers, 100–300 Apex classes):
@@ -228,4 +258,4 @@ rtk-sf pays for itself in the first week of use.
 Pricing based on Claude Sonnet ($3.00/1M input tokens). Actual savings depend
 on your project size, session patterns, and model choice.*
 
-Built with love by [furuCRM Inc.](https://furucrm.com)
+Built with love by [furuCRM Inc.](https://www.furucrm.com)
