@@ -169,8 +169,8 @@ test: add test for differential mtime tracking
 
 ## Questions?
 
-Open a [Discussion](https://github.com/furuCRM/rtk-sf/discussions) or reach out at [dev@furucrm.com](mailto:dev@furucrm.com).
+Open a [Discussion](https://github.com/furuCRM-Inc/rtk-sf/discussions) or reach out at [dev@furucrm.com](mailto:dev@furucrm.com).
 
 ---
 
-Built with love by [furuCRM Inc.](https://furucrm.com)
+Built with love by [furuCRM Inc.](https://www.furucrm.com)

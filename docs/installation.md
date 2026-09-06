@@ -14,7 +14,7 @@
 
 ```bash
 cd /path/to/your/salesforce-project
-curl -sSL https://raw.githubusercontent.com/furuCRM/rtk-sf/main/scripts/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/furuCRM-Inc/rtk-sf/main/scripts/install.sh | bash
 ```
 
 ### Option B: Manual

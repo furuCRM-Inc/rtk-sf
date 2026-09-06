@@ -113,6 +113,41 @@ _TOOLS: list[dict[str, Any]] = [
             },
         },
     },
+    {
+        "name": "annotate_component",
+        "description": (
+            "Record a discovered business rule, condition, or context note on a component. "
+            "Use this after finding logic in source code (e.g. an if-condition, SOQL filter, "
+            "access rule) so the knowledge is searchable without re-reading the source file. "
+            "Annotations are immediately indexed and returned by query_compressed_spec."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "component_name": {
+                    "type": "string",
+                    "description": "Exact component name to annotate (e.g. 'Application__c').",
+                },
+                "key": {
+                    "type": "string",
+                    "description": (
+                        "Short category label for the annotation. "
+                        "Examples: 'business_rule', 'condition', 'access_rule', 'soql_filter', 'validation'."
+                    ),
+                },
+                "value": {
+                    "type": "string",
+                    "description": "Full description of the discovered logic or context.",
+                },
+                "source": {
+                    "type": "string",
+                    "description": "Origin of this annotation (default: 'ai_discovery').",
+                    "default": "ai_discovery",
+                },
+            },
+            "required": ["component_name", "key", "value"],
+        },
+    },
 ]
 
 
@@ -204,6 +239,8 @@ class MCPServer:
                 result = self._tool_get_relations(arguments)
             elif tool_name == "list_components":
                 result = self._tool_list_components(arguments)
+            elif tool_name == "annotate_component":
+                result = self._tool_annotate(arguments)
             else:
                 self._write(self._error(request_id, -32601, f"Unknown tool: {tool_name}"))
                 return
@@ -232,12 +269,56 @@ class MCPServer:
                 best = results[0]
                 spec = best.get("yaml_spec") or search.get_spec(best["name"])
                 if spec:
-                    return f"# Closest match: {best['name']}\n\n{spec}"
+                    component_name = best["name"]
+                    annotations = search.get_annotations(component_name)
+                    return self._format_spec_with_annotations(
+                        f"# Closest match: {component_name}\n\n{spec}",
+                        annotations,
+                    )
             return (
                 f"Component '{component_name}' not found in index.\n"
                 "Run `rtk-sf index` to update the index."
             )
-        return spec
+
+        annotations = search.get_annotations(component_name)
+        return self._format_spec_with_annotations(spec, annotations)
+
+    @staticmethod
+    def _format_spec_with_annotations(spec: str, annotations: list) -> str:
+        if not annotations:
+            return spec
+        lines = [spec, "", "## Annotations (discovered business logic)", ""]
+        for a in annotations:
+            import datetime
+            ts = datetime.datetime.fromtimestamp(a["created_at"]).strftime("%Y-%m-%d")
+            lines.append(f"[{a['key']}] ({a['source']} · {ts})")
+            lines.append(f"  {a['value']}")
+            lines.append("")
+        return "\n".join(lines)
+
+    def _tool_annotate(self, args: dict) -> str:
+        component_name = args.get("component_name", "").strip()
+        key = args.get("key", "").strip()
+        value = args.get("value", "").strip()
+        source = args.get("source", "ai_discovery").strip() or "ai_discovery"
+
+        if not component_name or not key or not value:
+            return "Error: component_name, key, and value are all required."
+
+        search = self._get_search()
+        ok = search.add_annotation(component_name, key, value, source)
+        if ok:
+            return (
+                f"Annotation saved on '{component_name}'.\n"
+                f"  key    : {key}\n"
+                f"  source : {source}\n"
+                f"  value  : {value}\n\n"
+                f"This is now searchable via search_codebase and included in query_compressed_spec."
+            )
+        return (
+            f"Component '{component_name}' not found in index. "
+            "Run `rtk-sf index` first."
+        )
 
     def _tool_search(self, args: dict) -> str:
         query = args.get("query", "").strip()

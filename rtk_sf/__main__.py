@@ -140,11 +140,12 @@ Examples:
 MCP integration:
   claude mcp add rtk-sf -- python -m rtk_sf serve
 
-Built by furuCRM Inc. — https://furucrm.com
+Built by furuCRM Inc. — https://www.furucrm.com
 """,
     )
+    from rtk_sf import __version__
     parser.add_argument(
-        "--version", action="version", version="rtk-sf 0.1.0"
+        "--version", action="version", version=f"rtk-sf {__version__}"
     )
     parser.add_argument(
         "-v", "--verbose", action="store_true", help="Enable debug logging"
