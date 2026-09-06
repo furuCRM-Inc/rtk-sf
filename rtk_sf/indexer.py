@@ -93,6 +93,7 @@ FILE_SUFFIX_TO_TYPE: dict[str, str] = {
     "permissionsetgroup-meta.xml": "PermissionSetGroup",
     "custompermission-meta.xml": "CustomPermission",
     # Rules / Automation
+    "validationrule-meta.xml": "ValidationRule",
     "workflow-meta.xml": "WorkflowRule",
     "assignmentrules-meta.xml": "AssignmentRules",
     "escalationrules-meta.xml": "EscalationRules",
@@ -966,6 +967,8 @@ class SalesforceIndexer:
             return self._index_object(file_path, stem, xml)
         elif parent == "flows" or filename.endswith(".flow-meta.xml"):
             return self._index_flow(file_path, stem, xml)
+        elif parent == "validationRules" or filename.endswith(".validationRule-meta.xml"):
+            return self._index_standalone_validation_rule(file_path, stem, xml)
 
         # --- New: detect by compound suffix ---
         detected_type = _detect_suffix_type(file_path)
@@ -1355,6 +1358,46 @@ class SalesforceIndexer:
             logger.info("Indexed %d validation rule(s) from: %s", count, file_path.name)
             return True
         return False
+
+    def _index_standalone_validation_rule(self, file_path: Path, stem: str, xml: str) -> bool:
+        """Index a standalone *.validationRule-meta.xml file (Salesforce DX format).
+
+        Path convention: objects/<ObjectName>/validationRules/<RuleName>.validationRule-meta.xml
+        The object name is derived from the grandparent directory.
+        """
+        parts = file_path.parts
+        try:
+            vr_idx = list(parts).index("validationRules")
+            object_name = parts[vr_idx - 1]
+        except (ValueError, IndexError):
+            object_name = file_path.parent.parent.name
+
+        parsed = _parse_validation_rule_xml(xml)
+        rule_name = parsed.get("fullName") or stem
+        component_name = f"{object_name}.{rule_name}"
+
+        spec: dict[str, Any] = {
+            "component": component_name,
+            "type": "ValidationRule",
+            "file": str(file_path.name),
+            "active": parsed.get("active", False),
+            "description": parsed.get("description", ""),
+            "errorMessage": parsed.get("errorMessage", ""),
+            "errorConditionFormula": parsed.get("errorConditionFormula", ""),
+        }
+        yaml_content = yaml.dump(
+            spec, allow_unicode=True, default_flow_style=False, sort_keys=False
+        )
+        self._write_spec(component_name, yaml_content)
+        self._components[component_name] = {
+            "type": "ValidationRule",
+            "file": str(file_path),
+            "object": object_name,
+            "active": parsed.get("active", False),
+        }
+        self.registry.mark_indexed(file_path)
+        logger.info("Indexed standalone validation rule: %s", component_name)
+        return True
 
     def _index_lwc_bundle(self, bundle_dir: Path) -> bool:
         """Index a Lightning Web Component bundle directory."""

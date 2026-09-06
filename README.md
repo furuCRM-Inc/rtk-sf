@@ -82,7 +82,7 @@ Cost (@$3/1M):    $0.045
 │  query_compressed_spec("AccountService")  → 300-token YAML  │
 │                                             + annotations    │
 │  search_codebase("payment processing")   → top 5 matches    │
-│  search_codebase("不備修正")              → Japanese OK      │
+│  search_codebase("承認フロー")             → Japanese OK      │
 │  get_relations("AccountService")         → callers + deps   │
 │  list_components(type="ApexClass")       → all Apex classes  │
 │  annotate_component("Account__c", ...)   → write knowledge  │
@@ -260,10 +260,10 @@ Keyword search uses SQLite's built-in **FTS5** full-text search — no external 
 
 ```bash
 # All of these work — including short Japanese terms
-search_codebase("申込")    # 2-char: LIKE fallback → hits Application__c fields
-search_codebase("不備")    # 2-char: LIKE fallback → hits DeficiencyReason__c
-search_codebase("主任教諭") # 4-char: FTS5 trigram  → hits RT_ChiefTeacher, related fields
-search_codebase("管理職")  # 3-char: FTS5 trigram  → hits RT_Management, related fields
+search_codebase("承認")    # 2-char: LIKE fallback → hits Approval__c, ApprovalFlow fields
+search_codebase("取引")    # 2-char: LIKE fallback → hits Account, OrderService, related fields
+search_codebase("承認フロー") # 4-char: FTS5 trigram  → hits ApprovalFlow, ApprovalStage__c
+search_codebase("顧客管理")  # 4-char: FTS5 trigram  → hits AccountService, CustomerService
 ```
 
 **CamelCase splitting** is also applied at index time — `ExamTicketDownloadController` is indexed as both the full identifier and its word fragments (`Exam`, `Ticket`, `Download`, `Controller`), so partial English searches work without knowing the exact component name.
@@ -342,24 +342,24 @@ When your AI agent discovers business logic hidden inside method bodies — cond
 
 ```
 # First session: AI reads source and discovers a condition
-Agent → [reads ApplicationSubmissionController.cls]
-      → finds: if (app.Status__c != '不備') throw AuraHandledException
+Agent → [reads OrderApprovalController.cls]
+      → finds: if (order.Status__c != '承認済') throw AuraHandledException
       → [calls annotate_component(
-            component_name = "Application__c",
+            component_name = "Order__c",
             key            = "business_rule",
-            value          = "Correction (saveApplicationCorrection) only allowed when Status__c = '不備'. Owner check: EligibleStaff__r.Contact__c = current user. After correction, status reverts to '申込済'.",
+            value          = "Approval update (saveApproval) only allowed when Status__c = '承認済'. Owner check: AssignedUser__r.Contact__c = current user.",
             source         = "ai_discovery"
          )]
 
 # All future sessions: no source read needed
-Agent → [calls search_codebase("correction condition")]
-      → returns Application__c with annotation in results
+Agent → [calls search_codebase("approval condition")]
+      → returns Order__c with annotation in results
 
-Agent → [calls query_compressed_spec("Application__c")]
+Agent → [calls query_compressed_spec("Order__c")]
       → returns YAML spec PLUS:
          ## Annotations (discovered business logic)
          [business_rule] (ai_discovery · 2026-09-06)
-           Correction only allowed when Status__c = '不備'. ...
+           Approval update only allowed when Status__c = '承認済'. ...
 ```
 
 **Virtuous cycle**: each session makes the knowledge base richer for the next one — at zero additional token cost.
