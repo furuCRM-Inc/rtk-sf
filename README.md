@@ -3,7 +3,7 @@
 **Zero-Token Knowledge & Visual Live-Mapping Layer for Salesforce AI Agents**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.3.0-brightgreen)](https://github.com/furuCRM/rtk-sf/releases)
+[![Version](https://img.shields.io/badge/version-0.3.0-brightgreen)](https://github.com/furuCRM-Inc/rtk-sf/releases)
 [![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue)](https://python.org)
 [![MCP Compatible](https://img.shields.io/badge/MCP-Compatible-green)](https://modelcontextprotocol.io)
 [![furuCRM](https://img.shields.io/badge/by-furuCRM%20Inc.-0066cc)](https://www.furucrm.com)
@@ -107,7 +107,7 @@ Cost (@$3/1M):    $0.045
 ### Option A — One-liner (recommended)
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/furuCRM/rtk-sf/main/scripts/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/furuCRM-Inc/rtk-sf/main/scripts/install.sh | bash
 ```
 
 This checks Python, installs rtk-sf, indexes your project, and prints your next steps — all in one command.
@@ -474,7 +474,7 @@ pip install "rtk-sf[vector]"
 ### From source
 
 ```bash
-git clone https://github.com/furuCRM/rtk-sf.git
+git clone https://github.com/furuCRM-Inc/rtk-sf.git
 cd rtk-sf
 pip install -e ".[dev]"
 ```
@@ -546,7 +546,7 @@ If you discover business rules, access conditions, or SOQL filters that are impo
 ### Quick start for contributors
 
 ```bash
-git clone https://github.com/furuCRM/rtk-sf.git
+git clone https://github.com/furuCRM-Inc/rtk-sf.git
 cd rtk-sf
 pip install -e ".[dev]"
 pytest

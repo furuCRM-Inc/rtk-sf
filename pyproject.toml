@@ -51,10 +51,10 @@ dev = [
 rtk-sf = "rtk_sf.__main__:main"
 
 [project.urls]
-Homepage = "https://github.com/furuCRM/rtk-sf"
-Repository = "https://github.com/furuCRM/rtk-sf"
-Documentation = "https://github.com/furuCRM/rtk-sf/tree/main/docs"
-"Bug Tracker" = "https://github.com/furuCRM/rtk-sf/issues"
+Homepage = "https://github.com/furuCRM-Inc/rtk-sf"
+Repository = "https://github.com/furuCRM-Inc/rtk-sf"
+Documentation = "https://github.com/furuCRM-Inc/rtk-sf/tree/main/docs"
+"Bug Tracker" = "https://github.com/furuCRM-Inc/rtk-sf/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["rtk_sf"]

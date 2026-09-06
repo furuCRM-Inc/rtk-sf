@@ -87,5 +87,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/furuCRM/rtk-sf/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/furuCRM/rtk-sf/releases/tag/v0.1.0
+[Unreleased]: https://github.com/furuCRM-Inc/rtk-sf/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/furuCRM-Inc/rtk-sf/releases/tag/v0.1.0

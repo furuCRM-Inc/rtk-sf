@@ -2,7 +2,7 @@
 # install.sh — One-command rtk-sf setup for Salesforce DX projects.
 #
 # Usage:
-#   curl -sSL https://raw.githubusercontent.com/furuCRM/rtk-sf/main/scripts/install.sh | bash
+#   curl -sSL https://raw.githubusercontent.com/furuCRM-Inc/rtk-sf/main/scripts/install.sh | bash
 #
 # Or locally:
 #   chmod +x scripts/install.sh && ./scripts/install.sh
@@ -148,7 +148,7 @@ print_next_steps() {
   echo "  4. Re-index after adding new Apex classes or objects:"
   echo -e "     ${BOLD}rtk-sf index${NC}"
   echo ""
-  info "Docs: https://github.com/furuCRM/rtk-sf"
+  info "Docs: https://github.com/furuCRM-Inc/rtk-sf"
   echo ""
   echo -e "Built with love by ${BOLD}furuCRM Inc.${NC} — https://www.furucrm.com"
   echo ""
