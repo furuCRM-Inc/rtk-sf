@@ -67,11 +67,70 @@ def _load_specs(specs_dir: Path) -> dict[str, str]:
     return specs
 
 
-def _build_cytoscape_elements(relations: dict[str, Any]) -> list[dict[str, Any]]:
-    """Convert relations graph to Cytoscape.js elements array."""
+def _type_to_class(node_type: str) -> str:
+    """Map Salesforce metadata type to a CSS class name for Cytoscape styling."""
+    t = node_type.lower()
+    if "apex" in t or t == "apexclass":
+        return "apex"
+    if "object" in t:
+        return "object"
+    if "field" in t:
+        return "field"
+    if "flow" in t:
+        return "flow"
+    if "lwc" in t or "lightning" in t or "aura" in t:
+        return "lwc"
+    if "profile" in t or "permission" in t:
+        return "profile"
+    if "prompt" in t or "genai" in t or "bot" in t or "ai" in t:
+        return "agentforce"
+    return "generic"
+
+
+def _nodes_from_specs(specs: dict[str, str]) -> list[dict[str, Any]]:
+    """Build Cytoscape node elements directly from spec YAML when relations is empty."""
+    elements = []
+    for name, yaml_text in specs.items():
+        node_type = "Unknown"
+        file_path = ""
+        for line in yaml_text.split("\n")[:15]:
+            if line.startswith("type:"):
+                node_type = line.split(":", 1)[1].strip()
+            elif line.startswith("file:"):
+                file_path = line.split(":", 1)[1].strip()
+            if node_type != "Unknown" and file_path:
+                break
+        elements.append(
+            {
+                "data": {
+                    "id": name,
+                    "label": name,
+                    "type": node_type,
+                    "file": file_path,
+                },
+                "classes": _type_to_class(node_type),
+            }
+        )
+    return elements
+
+
+def _build_cytoscape_elements(
+    relations: dict[str, Any],
+    specs: dict[str, str],
+) -> list[dict[str, Any]]:
+    """Convert relations graph to Cytoscape.js elements array.
+
+    Falls back to spec-based node list when relations.json has no nodes,
+    so the architecture map is always populated even on first install.
+    """
     elements: list[dict[str, Any]] = []
 
-    for node in relations.get("nodes", []):
+    nodes = relations.get("nodes", [])
+    if not nodes and specs:
+        # relations graph not yet built — render all specs as standalone nodes
+        return _nodes_from_specs(specs)
+
+    for node in nodes:
         node_id = node.get("id", "")
         node_type = node.get("type", "Unknown")
         elements.append(
@@ -82,7 +141,7 @@ def _build_cytoscape_elements(relations: dict[str, Any]) -> list[dict[str, Any]]
                     "type": node_type,
                     "file": node.get("file", ""),
                 },
-                "classes": node_type.lower().replace("custom", "").replace("class", "apex"),
+                "classes": _type_to_class(node_type),
             }
         )
 
@@ -133,13 +192,15 @@ def generate_html(
 
     relations = _load_relations(rtk_dir)
     specs = _load_specs(specs_dir)
-    elements = _build_cytoscape_elements(relations)
+    elements = _build_cytoscape_elements(relations, specs)
 
-    node_count = len(relations.get("nodes", []))
+    relation_nodes = len(relations.get("nodes", []))
     edge_count = len(relations.get("edges", []))
+    node_count = relation_nodes if relation_nodes else len(specs)
     logger.info(
-        "Generating architecture map: %d nodes, %d edges, %d specs",
+        "Generating architecture map: %d nodes, %d edges, %d specs%s",
         node_count, edge_count, len(specs),
+        " (spec-fallback mode)" if not relation_nodes else "",
     )
 
     html = _render_html(elements, specs, node_count, edge_count)
