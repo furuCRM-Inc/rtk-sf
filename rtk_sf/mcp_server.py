@@ -11,8 +11,10 @@ Tools exposed:
     get_relations(component_name)               → upstream/downstream graph
     list_components(type)                       → list of indexed components
     annotate_component(component_name, key, ..) → write discovered business logic
-    get_class_skeleton(component_name, focus)   → surgical Apex class skeleton
-    sf_command(action, ...)                     → silent sf CLI execution
+    get_class_skeleton(component_name, focus)   → surgical Apex class skeleton (v0.4.0)
+    sf_command(action, ...)                     → silent sf CLI execution (v0.4.0)
+    get_object_schema(object_name)              → compact data-generation profile (v0.4.1)
+    soql_query(query, target_org, ..)           → SOQL with auto row truncation (v0.4.1)
 
 Protocol:
     - Reads JSON-RPC 2.0 requests line-by-line from stdin.
@@ -192,6 +194,55 @@ _TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "get_object_schema",
+        "description": (
+            "Return a compact data-generation profile for a Salesforce object "
+            "from the local index — WITHOUT calling 'sf sobject describe'. "
+            "Includes only field API names, data types, required flags, and picklist values. "
+            "Token impact: 5,000-token live schema → ~150-token clean dictionary. "
+            "Use this before creating or modifying records to know what fields to populate."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "object_name": {
+                    "type": "string",
+                    "description": "Salesforce object API name, e.g. 'Order__c' or 'Account'.",
+                }
+            },
+            "required": ["object_name"],
+        },
+    },
+    {
+        "name": "soql_query",
+        "description": (
+            "Run a SOQL query against a Salesforce org with automatic row truncation. "
+            "Enforces a LIMIT cap (default 3) and strips internal attributes from results, "
+            "so Claude sees only sample data patterns — not a 500-record dump. "
+            "Token impact: prevents thousands of result tokens flooding the context window. "
+            "Use this instead of 'sf data query' for any data inspection task."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "SOQL query string, e.g. \"SELECT Id, Name, Status__c FROM Order__c\".",
+                },
+                "target_org": {
+                    "type": "string",
+                    "description": "Org alias or username (e.g. 'dev01').",
+                },
+                "sample_size": {
+                    "type": "integer",
+                    "description": "Maximum records to return (default 3, max recommended 10).",
+                    "default": 3,
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
         "name": "annotate_component",
         "description": (
             "Record a discovered business rule, condition, or context note on a component. "
@@ -323,6 +374,10 @@ class MCPServer:
                 result = self._tool_get_skeleton(arguments)
             elif tool_name == "sf_command":
                 result = self._tool_sf_command(arguments)
+            elif tool_name == "get_object_schema":
+                result = self._tool_get_object_schema(arguments)
+            elif tool_name == "soql_query":
+                result = self._tool_soql_query(arguments)
             else:
                 self._write(self._error(request_id, -32601, f"Unknown tool: {tool_name}"))
                 return
@@ -377,6 +432,25 @@ class MCPServer:
             lines.append(f"  {a['value']}")
             lines.append("")
         return "\n".join(lines)
+
+    def _tool_get_object_schema(self, args: dict) -> str:
+        object_name = args.get("object_name", "").strip()
+        if not object_name:
+            return "Error: object_name is required."
+        from rtk_sf.data_tools import get_object_schema
+        rtk_dir = self.project_root / ".rtk-sf"
+        return get_object_schema(object_name, rtk_dir)
+
+    def _tool_soql_query(self, args: dict) -> str:
+        query = args.get("query", "").strip()
+        if not query:
+            return "Error: query is required."
+        from rtk_sf.data_tools import run_soql
+        return run_soql(
+            query=query,
+            target_org=args.get("target_org"),
+            sample_size=int(args.get("sample_size", 3)),
+        )
 
     def _tool_annotate(self, args: dict) -> str:
         component_name = args.get("component_name", "").strip()
