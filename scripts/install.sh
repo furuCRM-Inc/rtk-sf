@@ -125,7 +125,56 @@ run_index() {
 }
 
 # ---------------------------------------------------------------------------
-# Step 5: Print next steps
+# Step 5: Patch CLAUDE.md so Claude Code uses rtk-sf tools automatically
+# ---------------------------------------------------------------------------
+RTK_CLAUDE_MARKER="## Code Search — Use rtk-sf First"
+
+patch_claude_md() {
+  local claude_md="CLAUDE.md"
+
+  # Skip if already patched
+  if [ -f "$claude_md" ] && grep -q "$RTK_CLAUDE_MARKER" "$claude_md" 2>/dev/null; then
+    success "CLAUDE.md already has rtk-sf instructions. Skipping."
+    return
+  fi
+
+  local block
+  block=$(cat <<'BLOCK'
+
+## Code Search — Use rtk-sf First (Required)
+
+This project is indexed by **rtk-sf**. Always use the MCP tools before reading raw source files:
+
+| Task | Tool to call |
+|---|---|
+| Find a component by name or keyword | `search_codebase(query)` |
+| Read a component's spec / fields / methods | `query_compressed_spec(component_name)` |
+| Blast-radius before editing | `get_relations(component_name)` |
+| List all Apex classes / objects / flows | `list_components(type)` |
+| Write discovered business logic back | `annotate_component(component_name, key, value)` |
+
+**Never** open a raw `.cls`, `.object-meta.xml`, or `.flow-meta.xml` unless the compressed spec is missing or insufficient.
+
+BLOCK
+)
+
+  if [ -f "$claude_md" ]; then
+    # Prepend block after the first line (title) so it appears near the top
+    local first_line
+    first_line=$(head -1 "$claude_md")
+    local rest
+    rest=$(tail -n +2 "$claude_md")
+    printf '%s\n%s\n%s\n' "$first_line" "$block" "$rest" > "$claude_md"
+    success "CLAUDE.md updated with rtk-sf tool instructions."
+  else
+    # No CLAUDE.md yet — create a minimal one
+    printf '# Salesforce Project\n%s\n' "$block" > "$claude_md"
+    success "CLAUDE.md created with rtk-sf tool instructions."
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Step 6: Print next steps
 # ---------------------------------------------------------------------------
 print_next_steps() {
   echo ""
@@ -167,6 +216,7 @@ main() {
   install_rtk_sf
   detect_project
   run_index
+  patch_claude_md
   print_next_steps
 }
 

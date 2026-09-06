@@ -146,7 +146,27 @@ Synced 84 components into search index.
 claude mcp add rtk-sf -- python -m rtk_sf serve
 ```
 
-**Step 4 — (Optional) Generate the visual architecture map**
+**Step 4 — Tell Claude to use rtk-sf (critical)**
+
+The install script does this automatically. If you ran it manually, add this block to the top of your `CLAUDE.md`:
+
+```markdown
+## Code Search — Use rtk-sf First (Required)
+
+| Task | Tool to call |
+|---|---|
+| Find a component | `search_codebase(query)` |
+| Read a spec | `query_compressed_spec(component_name)` |
+| Blast-radius check | `get_relations(component_name)` |
+| List components | `list_components(type)` |
+| Write back discovered logic | `annotate_component(component_name, key, value)` |
+
+Never open raw `.cls` or `.xml` files unless the spec is insufficient.
+```
+
+Without this, Claude defaults to reading raw source files and ignores the MCP tools.
+
+**Step 5 — (Optional) Generate the visual architecture map**
 
 ```bash
 rtk-sf ui && open dist/architecture_map.html
