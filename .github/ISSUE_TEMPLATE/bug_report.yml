@@ -1,0 +1,110 @@
+name: Bug Report
+description: Report a bug or unexpected behavior in rtk-sf
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a bug. Please fill in as much detail as possible.
+        For security issues, email dev@furucrm.com directly (do not open a public issue).
+
+  - type: input
+    id: version
+    attributes:
+      label: rtk-sf version
+      description: Run `rtk-sf --version` to get the version.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      description: Run `python --version`
+      placeholder: "3.11.2"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Linux (Ubuntu/Debian)
+        - Linux (RHEL/CentOS/Fedora)
+        - Windows
+        - Windows Subsystem for Linux (WSL2)
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected component
+      options:
+        - Indexer (rtk-sf index)
+        - Search (search_codebase tool)
+        - MCP Server (rtk-sf serve)
+        - File Watcher (rtk-sf watch)
+        - Architecture Map UI (rtk-sf ui)
+        - CLI / general
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug description
+      description: What happened? What did you expect to happen?
+      placeholder: |
+        When I run `rtk-sf index`, it returns 0 indexed files even though
+        I have 50 Apex classes in force-app/. Expected: all 50 to be indexed.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps to reproduce the bug.
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Full error output
+      description: |
+        Run with `--verbose` flag and paste the full output:
+        `rtk-sf --verbose index 2>&1`
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: project_structure
+    attributes:
+      label: Project structure (anonymized)
+      description: |
+        Output of `ls -la` and `ls force-app/main/default/` (or equivalent).
+        Anonymize any sensitive names.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Any other relevant information, screenshots, or workarounds.
+    validations:
+      required: false

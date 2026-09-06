@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+*.whl
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Type checking
+.mypy_cache/
+
+# rtk-sf generated output (project-local, rebuilt on demand)
+.rtk-sf/
+dist/architecture_map.html
+
+# macOS
+.DS_Store
+
+# IDEs
+.idea/
+.vscode/
+*.code-workspace
+
+# Distribution / packaging
+MANIFEST

@@ -1,0 +1,82 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "rtk-sf"
+version = "0.1.0"
+description = "Zero-Token Knowledge & Visual Live-Mapping Layer for Salesforce AI Agents"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "furuCRM Inc.", email = "dev@furucrm.com" }]
+keywords = [
+    "salesforce",
+    "mcp",
+    "ai-agents",
+    "claude",
+    "cline",
+    "apex",
+    "token-optimization",
+    "developer-tools",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Software Development :: Code Generators",
+]
+requires-python = ">=3.9"
+dependencies = [
+    "watchdog>=3.0.0",
+    "pyyaml>=6.0.0",
+]
+
+[project.optional-dependencies]
+vector = ["numpy>=1.24.0"]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.5.0",
+]
+
+[project.scripts]
+rtk-sf = "rtk_sf.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/furuCRM/rtk-sf"
+Repository = "https://github.com/furuCRM/rtk-sf"
+Documentation = "https://github.com/furuCRM/rtk-sf/tree/main/docs"
+"Bug Tracker" = "https://github.com/furuCRM/rtk-sf/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["rtk_sf"]
+
+[tool.black]
+line-length = 100
+target-version = ["py39", "py310", "py311", "py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --cov=rtk_sf --cov-report=term-missing"

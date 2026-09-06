@@ -1,0 +1,93 @@
+name: Feature Request
+description: Suggest a new feature or enhancement for rtk-sf
+title: "[Feature]: "
+labels: ["enhancement", "needs-discussion"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for suggesting a feature. Please provide as much detail as possible.
+
+        Before submitting, check:
+        - [ ] Existing issues and discussions
+        - [ ] The project roadmap in [CHANGELOG.md](../../CHANGELOG.md)
+        - [ ] rtk-sf's core constraint: **no external API calls** (everything must work offline)
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: What pain point or limitation does this feature address?
+      placeholder: |
+        When I have Apex Triggers, they are not indexed by rtk-sf. The agent
+        has to read the full raw trigger file, costing ~3,000 extra tokens per trigger.
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How would you solve this? Be as specific as possible.
+      placeholder: |
+        Add trigger indexing in indexer.py: parse .trigger files similarly to .cls files,
+        extract trigger name, object, events (before insert, after update, etc.),
+        and ApexDoc summary. Output to .rtk-sf/specs/<TriggerName>.yaml.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component affected
+      options:
+        - Indexer (new metadata type)
+        - Search (search improvements)
+        - MCP Server (new tool)
+        - File Watcher
+        - Architecture Map UI
+        - CLI
+        - Documentation
+        - Other / New component
+    validations:
+      required: true
+
+  - type: input
+    id: token_impact
+    attributes:
+      label: Estimated token impact
+      description: |
+        If applicable: how many tokens per lookup does this save?
+        (e.g., "Saves ~3,000 tokens per trigger file read")
+      placeholder: "Saves ~3,000 tokens per trigger file read"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: willing_to_contribute
+    attributes:
+      label: Willing to contribute?
+      description: Would you like to implement this feature yourself?
+      options:
+        - "Yes, I'll open a PR"
+        - "Yes, with some guidance"
+        - "No, but I can help test"
+        - "No"
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Are there workarounds or alternative approaches?
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Links, examples, related issues, Salesforce docs, etc.
+    validations:
+      required: false

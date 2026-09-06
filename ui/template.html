@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<!--
+  rtk-sf Architecture Map — Cytoscape.js SPA template.
+
+  This file is the source template used by ui_generator.py.
+  The generated output (dist/architecture_map.html) has all data embedded
+  inline as JavaScript variables — no web server required.
+
+  Template placeholders replaced at generation time:
+    {{elements_json}}  — Cytoscape.js elements array (nodes + edges)
+    {{specs_json}}     — Dict mapping component name → YAML spec string
+    {{node_count}}     — Total node count
+    {{edge_count}}     — Total edge count
+    {{COLOR_*}}        — furuCRM brand color constants
+
+  To regenerate the output HTML, run:
+    python -m rtk_sf ui
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>rtk-sf — Salesforce Architecture Map</title>
+  <!--
+    Cytoscape.js is loaded from CDN.
+    For offline use, download and embed:
+    https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js
+  -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
+</head>
+<body>
+  <!-- Layout and styles are injected by ui_generator.py -->
+  <!-- This template documents the SPA structure -->
+
+  <header>
+    <h1>rtk-sf  Architecture Map</h1>
+    <!-- Stats: {node_count} components · {edge_count} relations -->
+    <!-- Search input, Clear, Re-layout buttons -->
+    <!-- furuCRM Inc. branding -->
+  </header>
+
+  <div class="main">
+    <!-- #cy: Cytoscape.js graph canvas -->
+    <div id="cy"></div>
+
+    <!-- #sidebar: Component details + YAML spec + relations -->
+    <div id="sidebar">
+      <div class="sidebar-header">
+        <h2 id="sidebarTitle">Component Details</h2>
+        <button id="closeSidebar">×</button>
+      </div>
+      <div id="specContent">
+        <!-- Populated by JavaScript on node click -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Legend: node type colors + selected/upstream/downstream highlight colors -->
+  <div class="legend"></div>
+
+  <script>
+  /*
+   * JavaScript structure (embedded in generated HTML):
+   *
+   * const ELEMENTS = [...];  // Cytoscape.js nodes + edges
+   * const SPECS    = {...};  // component_name → yaml_string
+   *
+   * Key interactions:
+   *   - Click node      → show YAML spec in sidebar, highlight paths
+   *   - Click canvas    → deselect, close sidebar
+   *   - Search input    → filter/dim non-matching nodes
+   *   - Re-layout btn   → run CoSE layout animation
+   *   - Keyboard:
+   *       Escape        → clear selection
+   *       Ctrl/Cmd+K    → focus search
+   *       F             → focus search
+   *
+   * Node color scheme:
+   *   ApexClass     → #3a86ff (blue)
+   *   CustomObject  → #ff006e (pink)
+   *   CustomField   → #8338ec (purple)
+   *   Flow          → #fb5607 (orange)
+   *   Selected      → #ff9f1c (amber)
+   *   Upstream      → #ffbf69 (light amber)
+   *   Downstream    → #ef233c (red)
+   */
+  </script>
+</body>
+</html>
