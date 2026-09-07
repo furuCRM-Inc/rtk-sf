@@ -139,60 +139,48 @@ patch_claude_md() {
     return
   fi
 
-  # v0.3.0 block present — remove it so we can replace with v0.4 block
+  # v0.3.0 block present — remove old block before re-writing
   if [ -f "$claude_md" ] && grep -q "$RTK_CLAUDE_MARKER" "$claude_md" 2>/dev/null; then
-    warn "Upgrading CLAUDE.md from rtk-sf v0.3 → v0.4 tool list..."
-    # Remove the old rtk-sf block (from marker line to next ## heading or EOF)
+    warn "Upgrading CLAUDE.md from rtk-sf v0.3 to v0.4 tool list..."
     local tmp
     tmp=$(mktemp)
     awk '/## Code Search/{found=1} found && /^## / && !/## Code Search/{found=0} !found' "$claude_md" > "$tmp"
     mv "$tmp" "$claude_md"
   fi
 
+  # Build block with printf — no heredoc, safe for curl|bash
+  local NL=$'\n'
+  local T='|'
+  local BT='`'
   local block
-  block=$(cat <<'BLOCK'
-
-## Code Search & Data — Use rtk-sf First (Required)
-
-This project is indexed by **rtk-sf**. Always use the MCP tools before reading raw files or calling sf CLI:
-
-| Task | Tool to call |
-|---|---|
-| Find a component by name or keyword | `search_codebase(query)` |
-| Read a component's spec / fields / methods | `query_compressed_spec(component_name)` |
-| Blast-radius before editing | `get_relations(component_name)` |
-| List all Apex classes / objects / flows | `list_components(type)` |
-| Write discovered business logic back | `annotate_component(component_name, key, value)` |
-| Read an Apex class before editing (surgical) | `get_class_skeleton(component_name, focus_methods)` |
-| Deploy / retrieve / run tests silently | `sf_command(action, target_org, ...)` |
-| Get object field list for data creation | `get_object_schema(object_name)` |
-| Inspect existing records (sample only) | `soql_query(query, target_org, sample_size)` |
-
-**Never** do these directly — use the tool instead:
-- ❌ `Read` a raw `.cls` file → ✅ `get_class_skeleton`
-- ❌ `sf sobject describe` → ✅ `get_object_schema`
-- ❌ `sf data query` → ✅ `soql_query`
-- ❌ `sf project deploy start` → ✅ `sf_command(action="deploy")`
-
-If search returns no results, re-index with:
-```bash
-python3 -m rtk_sf index
-```
-Do NOT use `npx rtk-sf` — rtk-sf is a Python package, not npm.
-
-BLOCK
-)
+  block="${NL}## Code Search & Data — Use rtk-sf First (Required)${NL}"
+  block="${block}${NL}This project is indexed by **rtk-sf**. Always use the MCP tools before reading raw files or calling sf CLI:${NL}"
+  block="${block}${NL}${T} Task ${T} Tool to call ${T}"
+  block="${block}${NL}${T}---|---${T}"
+  block="${block}${NL}${T} Find a component by name or keyword ${T} ${BT}search_codebase(query)${BT} ${T}"
+  block="${block}${NL}${T} Read a component spec / fields / methods ${T} ${BT}query_compressed_spec(component_name)${BT} ${T}"
+  block="${block}${NL}${T} Blast-radius before editing ${T} ${BT}get_relations(component_name)${BT} ${T}"
+  block="${block}${NL}${T} List all Apex classes / objects / flows ${T} ${BT}list_components(type)${BT} ${T}"
+  block="${block}${NL}${T} Write discovered business logic back ${T} ${BT}annotate_component(component_name, key, value)${BT} ${T}"
+  block="${block}${NL}${T} Read an Apex class before editing (surgical) ${T} ${BT}get_class_skeleton(component_name, focus_methods)${BT} ${T}"
+  block="${block}${NL}${T} Deploy / retrieve / run tests silently ${T} ${BT}sf_command(action, target_org, ...)${BT} ${T}"
+  block="${block}${NL}${T} Get object field list for data creation ${T} ${BT}get_object_schema(object_name)${BT} ${T}"
+  block="${block}${NL}${T} Inspect existing records (sample only) ${T} ${BT}soql_query(query, target_org, sample_size)${BT} ${T}"
+  block="${block}${NL}${NL}**Never** do these directly — use the tool instead:"
+  block="${block}${NL}- Read a raw .cls file      -> use ${BT}get_class_skeleton${BT}"
+  block="${block}${NL}- sf sobject describe        -> use ${BT}get_object_schema${BT}"
+  block="${block}${NL}- sf data query              -> use ${BT}soql_query${BT}"
+  block="${block}${NL}- sf project deploy start    -> use ${BT}sf_command(action=\"deploy\")${BT}"
+  block="${block}${NL}${NL}If search returns no results, re-index with: ${BT}python3 -m rtk_sf index${BT}"
+  block="${block}${NL}Do NOT use ${BT}npx rtk-sf${BT} — rtk-sf is a Python package, not npm.${NL}"
 
   if [ -f "$claude_md" ]; then
-    # Prepend block after the first line (title) so it appears near the top
-    local first_line
+    local first_line rest
     first_line=$(head -1 "$claude_md")
-    local rest
     rest=$(tail -n +2 "$claude_md")
     printf '%s\n%s\n%s\n' "$first_line" "$block" "$rest" > "$claude_md"
     success "CLAUDE.md updated with rtk-sf tool instructions."
   else
-    # No CLAUDE.md yet — create a minimal one
     printf '# Salesforce Project\n%s\n' "$block" > "$claude_md"
     success "CLAUDE.md created with rtk-sf tool instructions."
   fi
