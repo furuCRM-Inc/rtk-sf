@@ -152,10 +152,7 @@ Your AI agent now has instant, token-efficient access to your entire Salesforce 
 Run this inside your Salesforce project directory:
 
 ```bash
-python3 -m pip install --upgrade pip && \
-python3 -m pip install --force-reinstall --no-cache-dir \
-  "rtk-sf[all] @ git+https://github.com/furuCRM-Inc/rtk-sf.git@main" \
-  && python3 -m rtk_sf install
+python3 -m pip install --upgrade pip && python3 -m pip install --force-reinstall --no-cache-dir "rtk-sf[all] @ git+https://github.com/furuCRM-Inc/rtk-sf.git@main" && python3 -m rtk_sf install
 ```
 
 > **Requires pip ≥ 22.** The first line upgrades pip if needed — safe to run even if already up to date.
