@@ -34,29 +34,85 @@ RTK_REPO="https://github.com/furuCRM-Inc/rtk-sf.git"
 # ---------------------------------------------------------------------------
 # Step 1: Check Python version
 # ---------------------------------------------------------------------------
+
+# Run a Python command with a 5-second timeout.
+# Usage: _py_timeout <python_cmd> <args...>
+_py_timeout() {
+  local cmd="$1"; shift
+  if command -v timeout &>/dev/null; then
+    timeout 5 "$cmd" "$@"
+  else
+    # Fallback: background process + manual kill
+    "$cmd" "$@" &
+    local pid=$!
+    local i=0
+    while kill -0 "$pid" 2>/dev/null && [ $i -lt 5 ]; do
+      sleep 1; i=$((i+1))
+    done
+    if kill -0 "$pid" 2>/dev/null; then
+      kill "$pid" 2>/dev/null
+      return 1
+    fi
+    wait "$pid"
+  fi
+}
+
+# Detect Microsoft Store Python stub (Windows/Git Bash).
+# The stub silently opens the Store instead of running Python — causes hangs.
+_check_ms_store_stub() {
+  local py_path
+  py_path=$(command -v "$1" 2>/dev/null || true)
+  if echo "$py_path" | grep -qi "WindowsApps"; then
+    echo ""
+    error "'$1' points to a Microsoft Store stub, not a real Python installation."
+    error "  Detected path: $py_path"
+    echo ""
+    echo "  Fix (2 steps):"
+    echo "  1. Windows Settings → Apps → Advanced app settings → App execution aliases"
+    echo "     → turn OFF 'python.exe' and 'python3.exe'"
+    echo "  2. Install real Python from https://python.org/downloads"
+    echo "     (check 'Add Python to PATH' during setup)"
+    echo ""
+    exit 1
+  fi
+}
+
 check_python() {
   info "Checking Python version..."
 
   if command -v python3 &>/dev/null; then
+    _check_ms_store_stub python3
     PYTHON_CMD="python3"
   elif command -v python &>/dev/null; then
+    _check_ms_store_stub python
     PYTHON_CMD="python"
   else
-    error "Python not found. Please install Python 3.9+ from https://python.org"
+    error "Python not found. Install Python 3.9+ from https://python.org/downloads"
+    if echo "$OSTYPE" | grep -qi "msys\|cygwin\|win"; then
+      error "(Windows: check 'Add Python to PATH' during installation)"
+    fi
     exit 1
   fi
 
-  PYTHON_VERSION=$("$PYTHON_CMD" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
-  PYTHON_MAJOR=$("$PYTHON_CMD" -c "import sys; print(sys.version_info.major)")
-  PYTHON_MINOR=$("$PYTHON_CMD" -c "import sys; print(sys.version_info.minor)")
+  # Run with timeout — a Store stub or broken install can hang indefinitely
+  PYTHON_VERSION=$(_py_timeout "$PYTHON_CMD" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null) || {
+    error "'$PYTHON_CMD' timed out or failed to run."
+    error "This usually means it is a Microsoft Store stub or a broken install."
+    error "Fix: https://python.org/downloads (check 'Add Python to PATH')"
+    error "     Then disable python.exe in Windows Settings > App execution aliases."
+    exit 1
+  }
+
+  PYTHON_MAJOR="${PYTHON_VERSION%%.*}"
+  PYTHON_MINOR="${PYTHON_VERSION##*.}"
 
   if [ "$PYTHON_MAJOR" -lt 3 ] || { [ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 9 ]; }; then
     error "Python 3.9+ required. Found: $PYTHON_VERSION"
-    error "Please upgrade Python: https://python.org/downloads"
+    error "Upgrade: https://python.org/downloads"
     exit 1
   fi
 
-  success "Python $PYTHON_VERSION found."
+  success "Python $PYTHON_VERSION found at: $(command -v "$PYTHON_CMD")"
 }
 
 # ---------------------------------------------------------------------------
