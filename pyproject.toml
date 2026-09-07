@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "rtk-sf"
-version = "0.4.1"
+version = "0.5.0"
 description = "Zero-Token Knowledge & Visual Live-Mapping Layer for Salesforce AI Agents"
 readme = "README.md"
 license = { text = "MIT" }
