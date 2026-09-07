@@ -3,7 +3,7 @@
 **Zero-Token Knowledge & Visual Live-Mapping Layer for Salesforce AI Agents**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.3.0-brightgreen)](https://github.com/furuCRM-Inc/rtk-sf/releases)
+[![Version](https://img.shields.io/badge/version-0.4.1-brightgreen)](https://github.com/furuCRM-Inc/rtk-sf/releases)
 [![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue)](https://python.org)
 [![MCP Compatible](https://img.shields.io/badge/MCP-Compatible-green)](https://modelcontextprotocol.io)
 [![furuCRM](https://img.shields.io/badge/by-furuCRM%20Inc.-0066cc)](https://www.furucrm.com)
@@ -151,15 +151,19 @@ claude mcp add rtk-sf -- python -m rtk_sf serve
 The install script does this automatically. If you ran it manually, add this block to the top of your `CLAUDE.md`:
 
 ```markdown
-## Code Search — Use rtk-sf First (Required)
+## Code Search & Data — Use rtk-sf First (Required)
 
 | Task | Tool to call |
 |---|---|
-| Find a component | `search_codebase(query)` |
-| Read a spec | `query_compressed_spec(component_name)` |
-| Blast-radius check | `get_relations(component_name)` |
-| List components | `list_components(type)` |
-| Write back discovered logic | `annotate_component(component_name, key, value)` |
+| Find a component by name or keyword | `search_codebase(query)` |
+| Read a component spec / fields / methods | `query_compressed_spec(component_name)` |
+| Blast-radius before editing | `get_relations(component_name)` |
+| List all Apex classes / objects / flows | `list_components(type)` |
+| Write discovered business logic back | `annotate_component(component_name, key, value)` |
+| Read an Apex class before editing (surgical) | `get_class_skeleton(component_name, focus_methods)` |
+| Deploy / retrieve / run tests silently | `sf_command(action, target_org, ...)` |
+| Get object field list for data creation | `get_object_schema(object_name)` |
+| Inspect existing records (sample only) | `soql_query(query, target_org, sample_size)` |
 
 Never open raw `.cls` or `.xml` files unless the spec is insufficient.
 ```
@@ -254,7 +258,7 @@ Re-index (3 changed) : ~0.1 seconds
 
 ### Hybrid Search
 
-Keyword search uses SQLite's built-in **FTS5** full-text search — no external dependencies, no network calls. When `numpy` is installed (`pip install rtk-sf[vector]`), results are re-ranked using bag-of-words cosine similarity for improved relevance.
+Keyword search uses SQLite's built-in **FTS5** full-text search — no external dependencies, no network calls. When `numpy` is installed (`pip install "git+https://github.com/furuCRM-Inc/rtk-sf.git@main[vector]"`), results are re-ranked using bag-of-words cosine similarity for improved relevance.
 
 **Japanese search is fully supported.** rtk-sf uses the FTS5 `trigram` tokenizer combined with a LIKE fallback for 1–2 character terms, so Japanese metadata labels, picklist values, and annotation text are all searchable:
 
@@ -335,6 +339,10 @@ rtk-sf --help              # Show help
 | `get_relations` | `component_name: str` | Upstream callers + downstream deps |
 | `list_components` | `type: str = "all"` | All indexed components by type |
 | `annotate_component` | `component_name`, `key`, `value`, `source` | Saves discovered business logic back to the index |
+| `get_class_skeleton` | `component_name: str`, `focus_methods: list` | Apex source with non-focus method bodies collapsed (~280 tokens) |
+| `sf_command` | `action: str`, `target_org: str`, `...` | Runs sf CLI silently, returns JSON result |
+| `get_object_schema` | `object_name: str` | Compact field profile from local index (~150 tokens, no org call) |
+| `soql_query` | `query: str`, `target_org: str`, `sample_size: int = 3` | Capped SOQL result (3 clean rows with truncation notice) |
 
 ### `annotate_component` — Knowledge Annotation (v0.3.0)
 
@@ -519,7 +527,10 @@ rtk-sf/
 │   ├── indexer.py         # Differential parser (Apex, XML, objects)
 │   ├── search.py          # SQLite FTS5 + vector hybrid search
 │   ├── watcher.py         # OS file watcher (watchdog)
-│   ├── mcp_server.py      # MCP stdio JSON-RPC server
+│   ├── mcp_server.py      # MCP stdio JSON-RPC server (9 tools)
+│   ├── skeleton.py        # Apex class skeleton slicer (v0.4.0)
+│   ├── sf_runner.py       # Silent sf CLI wrapper (v0.4.0)
+│   ├── data_tools.py      # Mock schema + SOQL truncation (v0.4.1)
 │   └── ui_generator.py    # Generates dist/architecture_map.html
 ├── ui/
 │   └── template.html      # Cytoscape.js SPA template reference
@@ -586,6 +597,10 @@ pytest
 - [x] CamelCase splitting for partial English identifier search (v0.3.0)
 - [x] `annotate_component` MCP tool — write discovered business logic back to index (v0.3.0)
 - [x] Annotations included in `query_compressed_spec` response (v0.3.0)
+- [x] `get_class_skeleton` — surgical Apex read, collapses non-focus method bodies (v0.4.0)
+- [x] `sf_command` — silent sf CLI wrapper with JSON output (v0.4.0)
+- [x] `get_object_schema` — compact field profile from local index, zero org calls (v0.4.1)
+- [x] `soql_query` — SOQL with enforced row cap and truncation notice (v0.4.1)
 - [ ] VS Code extension with inline spec preview
 - [ ] GitHub Actions integration for CI spec validation
 - [ ] Org-aware indexing (pull metadata from connected org via `sf` CLI)
