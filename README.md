@@ -120,23 +120,14 @@ This checks Python, installs rtk-sf, indexes your project, and prints your next 
 pip install "rtk-sf[all] @ git+https://github.com/furuCRM-Inc/rtk-sf.git@main"
 ```
 
-**Step 2 — Index your Salesforce project**
+**Step 2 — Full setup (index + CLAUDE.md + next steps)**
 
 ```bash
 cd your-salesforce-project
-rtk-sf index
+python3 -m rtk_sf install
 ```
 
-```
-rtk-sf indexer starting...
-  Project root : /projects/my-org
-  Source path  : /projects/my-org/force-app
-Indexing complete:
-  Indexed : 84
-  Skipped : 0 (unchanged)
-  Errors  : 0
-Synced 84 components into search index.
-```
+This indexes your project, patches `CLAUDE.md` with the 14-tool table, and prints the MCP registration command.
 
 **Step 3 — Register with Claude Code**
 
@@ -144,37 +135,40 @@ Synced 84 components into search index.
 claude mcp add rtk-sf -- python3 -m rtk_sf serve
 ```
 
-**Step 4 — Tell Claude to use rtk-sf (critical)**
-
-The install script does this automatically. If you ran it manually, add this block to the top of your `CLAUDE.md`:
-
-```markdown
-## Code Search & Data — Use rtk-sf First (Required)
-
-| Task | Tool to call |
-|---|---|
-| Find a component by name or keyword | `search_codebase(query)` |
-| Read a component spec / fields / methods | `query_compressed_spec(component_name)` |
-| Blast-radius before editing | `get_relations(component_name)` |
-| List all Apex classes / objects / flows | `list_components(type)` |
-| Write discovered business logic back | `annotate_component(component_name, key, value)` |
-| Read an Apex class before editing (surgical) | `get_class_skeleton(component_name, focus_methods)` |
-| Deploy / retrieve / run tests silently | `sf_command(action, target_org, ...)` |
-| Get object field list for data creation | `get_object_schema(object_name)` |
-| Inspect existing records (sample only) | `soql_query(query, target_org, sample_size)` |
-
-Never open raw `.cls` or `.xml` files unless the spec is insufficient.
-```
-
-Without this, Claude defaults to reading raw source files and ignores the MCP tools.
-
-**Step 5 — (Optional) Generate the visual architecture map**
+**Step 4 — (Optional) Generate the visual architecture map**
 
 ```bash
-rtk-sf ui && open dist/architecture_map.html
+python3 -m rtk_sf ui && open dist/architecture_map.html
 ```
 
 Your AI agent now has instant, token-efficient access to your entire Salesforce codebase.
+
+---
+
+## Upgrading
+
+### From any previous version
+
+Run this inside your Salesforce project directory:
+
+```bash
+python3 -m pip install --force-reinstall --no-cache-dir \
+  "rtk-sf[all] @ git+https://github.com/furuCRM-Inc/rtk-sf.git@main" \
+  && python3 -m rtk_sf install
+```
+
+This reinstalls the latest version and automatically upgrades your `CLAUDE.md` to the current tool list.
+
+### What gets updated
+
+| Step | What happens |
+|---|---|
+| `pip install --force-reinstall` | Replaces the installed package with the latest |
+| `python3 -m rtk_sf install` | Re-indexes any new/changed files |
+| | Upgrades `CLAUDE.md` (v0.3 → v0.5 or v0.4 → v0.5) |
+| | Prints MCP re-registration reminder if needed |
+
+> **Note:** Re-indexing is incremental — unchanged files are skipped automatically.
 
 ---
 
@@ -530,7 +524,7 @@ rtk-sf/
 │   ├── indexer.py         # Differential parser (Apex, XML, objects)
 │   ├── search.py          # SQLite FTS5 + vector hybrid search
 │   ├── watcher.py         # OS file watcher (watchdog)
-│   ├── mcp_server.py      # MCP stdio JSON-RPC server (9 tools)
+│   ├── mcp_server.py      # MCP stdio JSON-RPC server (14 tools)
 │   ├── skeleton.py        # Apex class skeleton slicer (v0.4.0)
 │   ├── sf_runner.py       # Silent sf CLI wrapper (v0.4.0)
 │   ├── data_tools.py      # Mock schema + SOQL truncation (v0.4.1)
