@@ -117,7 +117,7 @@ This checks Python, installs rtk-sf, indexes your project, and prints your next 
 **Step 1 — Install**
 
 ```bash
-pip install "git+https://github.com/furuCRM-Inc/rtk-sf.git@main#egg=rtk-sf[all]"
+pip install "rtk-sf[all] @ git+https://github.com/furuCRM-Inc/rtk-sf.git@main"
 ```
 
 **Step 2 — Index your Salesforce project**
@@ -488,7 +488,7 @@ rtk-sf indexes all major Salesforce metadata types supported by the sf CLI, grou
 ### One command (recommended)
 
 ```bash
-pip install "git+https://github.com/furuCRM-Inc/rtk-sf.git@main#egg=rtk-sf[all]"
+pip install "rtk-sf[all] @ git+https://github.com/furuCRM-Inc/rtk-sf.git@main"
 ```
 
 Includes: core indexer + vector re-ranking (numpy) + local OCR (paddleocr + Pillow)
@@ -496,10 +496,10 @@ Includes: core indexer + vector re-ranking (numpy) + local OCR (paddleocr + Pill
 ### À la carte
 
 ```bash
-pip install "git+https://github.com/furuCRM-Inc/rtk-sf.git@main"                        # core only
-pip install "git+https://github.com/furuCRM-Inc/rtk-sf.git@main#egg=rtk-sf[vector]"     # + vector re-ranking
-pip install "git+https://github.com/furuCRM-Inc/rtk-sf.git@main#egg=rtk-sf[ocr]"        # + PaddleOCR (EN+JA)
-pip install "git+https://github.com/furuCRM-Inc/rtk-sf.git@main#egg=rtk-sf[ocr-fallback]" # + EasyOCR fallback
+pip install "git+https://github.com/furuCRM-Inc/rtk-sf.git@main"                                    # core only
+pip install "rtk-sf[vector] @ git+https://github.com/furuCRM-Inc/rtk-sf.git@main"                   # + vector re-ranking
+pip install "rtk-sf[ocr] @ git+https://github.com/furuCRM-Inc/rtk-sf.git@main"                      # + PaddleOCR (EN+JA)
+pip install "rtk-sf[ocr-fallback] @ git+https://github.com/furuCRM-Inc/rtk-sf.git@main"             # + EasyOCR fallback
 ```
 
 ### From source

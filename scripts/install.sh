@@ -121,12 +121,12 @@ check_python() {
 install_rtk_sf() {
   info "Installing rtk-sf[all] from GitHub..."
 
-  if "$PYTHON_CMD" -m pip install --quiet "git+${RTK_REPO}@main#egg=rtk-sf[all]" 2>&1; then
+  if "$PYTHON_CMD" -m pip install --quiet "rtk-sf[all] @ git+${RTK_REPO}@main" 2>&1; then
     RTK_VERSION=$("$PYTHON_CMD" -m rtk_sf --version 2>/dev/null || echo "unknown")
     success "rtk-sf $RTK_VERSION installed (core + vector re-ranking + OCR)."
   else
     error "pip install failed."
-    error "Try manually: pip install \"git+${RTK_REPO}@main#egg=rtk-sf[all]\""
+    error "Try manually: pip install \"rtk-sf[all] @ git+${RTK_REPO}@main\""
     exit 1
   fi
 }
