@@ -2,22 +2,159 @@
 __main__.py — CLI entry point for rtk-sf.
 
 Supports subcommands:
+    install — Full one-command setup: index + patch CLAUDE.md + print next steps
     index   — Index a Salesforce DX project
     watch   — Watch for file changes and re-index incrementally
     serve   — Start the MCP stdio JSON-RPC server
     ui      — Generate the architecture map HTML
 
 Usage:
-    python -m rtk_sf <subcommand> [options]
-    rtk-sf <subcommand> [options]      (when installed via pip)
+    python3 -m rtk_sf install            # run after pip install
+    python3 -m rtk_sf <subcommand> [options]
+    rtk-sf <subcommand> [options]       (when installed via pip)
 """
 
 from __future__ import annotations
 
 import argparse
 import logging
+import shutil
 import sys
 from pathlib import Path
+
+# CLAUDE.md markers used by install and upgrade detection
+_MARKER_V5 = "get_roi_stats"        # v0.5-only tool — confirms full 14-tool block
+_MARKER_V4 = "get_class_skeleton"   # v0.4 tool — present but missing 5 new v0.5 tools
+_MARKER_BASE = "## Code Search"
+
+
+def _info(msg: str) -> None:
+    print(f"\033[34m[rtk-sf]\033[0m {msg}")
+
+def _success(msg: str) -> None:
+    print(f"\033[32m[rtk-sf]\033[0m {msg}")
+
+def _warn(msg: str) -> None:
+    print(f"\033[33m[rtk-sf]\033[0m {msg}")
+
+def _bold(msg: str) -> None:
+    print(f"\033[1m{msg}\033[0m")
+
+
+def _detect_sf_source(project_root: Path) -> Path | None:
+    if (project_root / "force-app").is_dir():
+        return project_root / "force-app"
+    src = project_root / "src"
+    if src.is_dir() and any(src.rglob("*.cls")):
+        return src
+    if any(project_root.rglob("*.cls")):
+        return project_root
+    return None
+
+
+def _patch_claude_md(project_root: Path) -> None:
+    claude_md = project_root / "CLAUDE.md"
+
+    if claude_md.exists() and _MARKER_V5 in claude_md.read_text(encoding="utf-8"):
+        _success("CLAUDE.md already has rtk-sf v0.5 instructions. Skipping.")
+        return
+
+    # Strip old block (v0.3 or v0.4) if present, then rewrite with full v0.5 tool list
+    if claude_md.exists() and _MARKER_BASE in claude_md.read_text(encoding="utf-8"):
+        if _MARKER_V4 in claude_md.read_text(encoding="utf-8"):
+            _warn("Upgrading CLAUDE.md from v0.4 to v0.5 tool list (5 new tools)...")
+        else:
+            _warn("Upgrading CLAUDE.md from v0.3 to v0.5 tool list...")
+        lines = claude_md.read_text(encoding="utf-8").splitlines()
+        in_block = False
+        kept: list[str] = []
+        for line in lines:
+            if line.startswith(_MARKER_BASE):
+                in_block = True
+            elif in_block and line.startswith("## "):
+                in_block = False
+            if not in_block:
+                kept.append(line)
+        claude_md.write_text("\n".join(kept), encoding="utf-8")
+
+    block = """
+## Code Search & Data — Use rtk-sf First (Required)
+
+This project is indexed by **rtk-sf**. Always use the MCP tools before reading raw files or calling sf CLI:
+
+| Task | Tool to call |
+|---|---|
+| Find a component by name or keyword | `search_codebase(query)` |
+| Read a component spec / fields / methods | `query_compressed_spec(component_name)` |
+| Blast-radius before editing | `get_relations(component_name)` |
+| List all Apex classes / objects / flows | `list_components(type)` |
+| Write discovered business logic back | `annotate_component(component_name, key, value)` |
+| Read an Apex class before editing (surgical) | `get_class_skeleton(component_name, focus_methods)` |
+| Deploy / retrieve / run tests silently | `sf_command(action, target_org, ...)` |
+| Get object field list for data creation | `get_object_schema(object_name)` |
+| Inspect existing records (sample only) | `soql_query(query, target_org, sample_size)` |
+| Compact a bilingual prompt before sending | `compact_prompt(text)` |
+| Dry-run Apex code before deploy | `validate_apex(code)` |
+| Dry-run SOQL before executing | `validate_soql(query)` |
+| Extract text from a screenshot/image | `extract_image_text(image_path)` |
+| View token/dollar savings this session | `get_roi_stats()` |
+
+**Never** do these directly — use the tool instead:
+- Read a raw .cls file       → `get_class_skeleton`
+- sf sobject describe        → `get_object_schema`
+- sf data query              → `soql_query`
+- sf project deploy start    → `sf_command(action="deploy")`
+
+If search returns no results, re-index with: `python3 -m rtk_sf index`
+Do NOT use `npx rtk-sf` — rtk-sf is a Python package, not npm.
+"""
+
+    if claude_md.exists():
+        original = claude_md.read_text(encoding="utf-8")
+        first_line, _, rest = original.partition("\n")
+        claude_md.write_text(f"{first_line}\n{block}\n{rest}", encoding="utf-8")
+        _success("CLAUDE.md updated with rtk-sf tool instructions.")
+    else:
+        claude_md.write_text(f"# Salesforce Project\n{block}\n", encoding="utf-8")
+        _success("CLAUDE.md created with rtk-sf tool instructions.")
+
+
+def _print_next_steps() -> None:
+    python_cmd = "python3"
+
+    print()
+    _bold("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    _bold("  rtk-sf is ready!")
+    _bold("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print()
+    _info("Next steps:")
+    print()
+    print("  1. Register with Claude Code:")
+    print(f"     \033[1mclaude mcp add rtk-sf -- {python_cmd} -m rtk_sf serve\033[0m")
+    print()
+    print("  2. Generate the visual architecture map:")
+    print(f"     \033[1m{python_cmd} -m rtk_sf ui\033[0m")
+    print(f"     \033[1mopen dist/architecture_map.html\033[0m")
+    print()
+    print("  3. Enable live file watching during development:")
+    print(f"     \033[1m{python_cmd} -m rtk_sf watch\033[0m")
+    print()
+    print("  4. Re-index after adding new Apex classes or objects:")
+    print(f"     \033[1m{python_cmd} -m rtk_sf index\033[0m")
+    print()
+
+    if not shutil.which("rtk-sf"):
+        import sysconfig
+        scripts_dir = sysconfig.get_path("scripts")
+        if scripts_dir:
+            _warn("'rtk-sf' CLI not in PATH. Add it permanently:")
+            print(f'     \033[1mexport PATH="$PATH:{scripts_dir}"\033[0m')
+            print()
+
+    _info("Docs: https://github.com/furuCRM-Inc/rtk-sf")
+    print()
+    print(f"Built with love by \033[1mfuruCRM Inc.\033[0m — https://www.furucrm.com")
+    print()
 
 
 def _setup_logging(verbose: bool) -> None:
@@ -28,6 +165,59 @@ def _setup_logging(verbose: bool) -> None:
         datefmt="%H:%M:%S",
         stream=sys.stderr,
     )
+
+
+# ---------------------------------------------------------------------------
+# Subcommand: install (full setup)
+# ---------------------------------------------------------------------------
+
+
+def cmd_setup(args: argparse.Namespace) -> int:
+    """Full one-command setup: detect project, index, patch CLAUDE.md, print next steps."""
+    from rtk_sf.indexer import SalesforceIndexer
+    from rtk_sf.search import SearchEngine
+    from rtk_sf import __version__
+
+    project_root = Path(args.project_root).resolve()
+
+    print()
+    _bold("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    _bold(f"  rtk-sf {__version__} — setup")
+    _bold("  Zero-Token Knowledge Layer for Salesforce AI Agents")
+    _bold("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print()
+
+    # Step 1: detect Salesforce source directory
+    sf_source = _detect_sf_source(project_root)
+    if sf_source:
+        _success(f"Salesforce source detected: {sf_source.relative_to(project_root)}/")
+    else:
+        _warn("No Apex (.cls) files found. Indexing project root.")
+        sf_source = None
+
+    # Step 2: index
+    _info("Indexing Salesforce metadata...")
+    indexer = SalesforceIndexer(project_root)
+    counters = indexer.index_project(sf_source)
+    _success(
+        f"Index complete — "
+        f"{counters['indexed']} indexed, "
+        f"{counters['skipped']} skipped, "
+        f"{counters['errors']} errors."
+    )
+
+    if counters["indexed"] > 0:
+        with SearchEngine(project_root) as engine:
+            synced = engine.sync_from_specs()
+        _success(f"Search index ready: {synced} components.")
+
+    # Step 3: patch CLAUDE.md
+    _patch_claude_md(project_root)
+
+    # Step 4: next steps
+    _print_next_steps()
+
+    return 0 if counters["errors"] == 0 else 1
 
 
 # ---------------------------------------------------------------------------
@@ -138,7 +328,7 @@ Examples:
   rtk-sf ui --output ~/Desktop/map.html
 
 MCP integration:
-  claude mcp add rtk-sf -- python -m rtk_sf serve
+  claude mcp add rtk-sf -- python3 -m rtk_sf serve
 
 Built by furuCRM Inc. — https://www.furucrm.com
 """,
@@ -159,6 +349,13 @@ Built by furuCRM Inc. — https://www.furucrm.com
 
     subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
     subparsers.required = True
+
+    # install (full setup)
+    p_setup = subparsers.add_parser(
+        "install",
+        help="Full setup: index project + patch CLAUDE.md + print MCP registration steps",
+    )
+    p_setup.set_defaults(func=cmd_setup)
 
     # index
     p_index = subparsers.add_parser("index", help="Index Salesforce metadata")

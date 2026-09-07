@@ -15,6 +15,11 @@ Tools exposed:
     sf_command(action, ...)                     → silent sf CLI execution (v0.4.0)
     get_object_schema(object_name)              → compact data-generation profile (v0.4.1)
     soql_query(query, target_org, ..)           → SOQL with auto row truncation (v0.4.1)
+    compact_prompt(text)                        → bilingual NLP prompt compactor (v0.5.0)
+    validate_apex(code)                         → local Apex dry-run check (v0.5.0)
+    validate_soql(query)                        → local SOQL dry-run check (v0.5.0)
+    get_roi_stats()                             → session token/dollar savings report (v0.5.0)
+    extract_image_text(image_path)             → local OCR — bypasses vision tokens (v0.5.0)
 
 Protocol:
     - Reads JSON-RPC 2.0 requests line-by-line from stdin.
@@ -22,8 +27,8 @@ Protocol:
     - Logs diagnostics to stderr (never stdout).
 
 Usage:
-    python -m rtk_sf serve [--project-root .]
-    claude mcp add rtk-sf -- python -m rtk_sf serve
+    python3 -m rtk_sf serve [--project-root .]
+    claude mcp add rtk-sf -- python3 -m rtk_sf serve
 """
 
 from __future__ import annotations
@@ -243,6 +248,106 @@ _TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "compact_prompt",
+        "description": (
+            "Strip conversational noise from a bilingual (English + Japanese) prompt "
+            "before routing it to the AI engine. Removes polite fillers, pleasantries, "
+            "and grammatical particles while preserving Salesforce API names, method names, "
+            "and all structural parameters. "
+            "Token impact: a 200-token polite request → ~80-token intent payload."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "text": {
+                    "type": "string",
+                    "description": "Raw user prompt text to compact (English, Japanese, or mixed).",
+                }
+            },
+            "required": ["text"],
+        },
+    },
+    {
+        "name": "validate_apex",
+        "description": (
+            "Run a local regex-based dry-run check on Apex code before deploying to sandbox. "
+            "Detects: SOQL/DML inside loops, System.debug calls, TODO comments, "
+            "unbalanced braces, unclosed strings, and @future parameter type violations. "
+            "Zero org calls — instant feedback."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string",
+                    "description": "Apex class or method source code to validate.",
+                }
+            },
+            "required": ["code"],
+        },
+    },
+    {
+        "name": "validate_soql",
+        "description": (
+            "Run a local regex-based dry-run check on a SOQL query before executing against an org. "
+            "Detects: missing SELECT/FROM, SELECT *, LIMIT > 50,000, unbalanced parentheses, "
+            "missing WHERE+LIMIT (full-table scan risk), and date literal syntax errors. "
+            "Zero org calls — instant feedback."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "SOQL query string to validate.",
+                }
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "get_roi_stats",
+        "description": (
+            "Return a visual terminal summary of tokens and dollars saved this session "
+            "by using rtk-sf suppression tools instead of raw file reads or org calls. "
+            "Tracks: query_compressed_spec, get_class_skeleton, get_object_schema, soql_query."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "extract_image_text",
+        "description": (
+            "Extract English and Japanese text from an image file using local OCR — "
+            "bypassing Claude's multimodal vision token cost entirely. "
+            "Uses PaddleOCR (primary) or EasyOCR (fallback). "
+            "Supports: .png .jpg .jpeg .bmp .tiff .webp. "
+            "Token impact: a 1280×800 screenshot costs ~1,600 vision tokens as an image; "
+            "this returns the extracted text at ~100–300 tokens instead. "
+            "Use this when the user attaches a screenshot, mockup, error dialog, or form image."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "image_path": {
+                    "type": "string",
+                    "description": "Absolute or relative path to the image file.",
+                },
+                "preprocess": {
+                    "type": "boolean",
+                    "description": (
+                        "Apply grayscale + contrast boost before OCR. "
+                        "Helps with low-contrast screenshots or dark-mode UIs (default true)."
+                    ),
+                    "default": True,
+                },
+            },
+            "required": ["image_path"],
+        },
+    },
+    {
         "name": "annotate_component",
         "description": (
             "Record a discovered business rule, condition, or context note on a component. "
@@ -378,6 +483,16 @@ class MCPServer:
                 result = self._tool_get_object_schema(arguments)
             elif tool_name == "soql_query":
                 result = self._tool_soql_query(arguments)
+            elif tool_name == "compact_prompt":
+                result = self._tool_compact_prompt(arguments)
+            elif tool_name == "validate_apex":
+                result = self._tool_validate_apex(arguments)
+            elif tool_name == "validate_soql":
+                result = self._tool_validate_soql(arguments)
+            elif tool_name == "get_roi_stats":
+                result = self._tool_get_roi_stats()
+            elif tool_name == "extract_image_text":
+                result = self._tool_extract_image_text(arguments)
             else:
                 self._write(self._error(request_id, -32601, f"Unknown tool: {tool_name}"))
                 return
@@ -408,17 +523,23 @@ class MCPServer:
                 if spec:
                     component_name = best["name"]
                     annotations = search.get_annotations(component_name)
-                    return self._format_spec_with_annotations(
+                    result = self._format_spec_with_annotations(
                         f"# Closest match: {component_name}\n\n{spec}",
                         annotations,
                     )
+                    from rtk_sf.dry_run import record_savings
+                    record_savings("query_compressed_spec", raw_tokens=4000, compressed_tokens=len(result) // 4)
+                    return result
             return (
                 f"Component '{component_name}' not found in index.\n"
                 "Run `rtk-sf index` to update the index."
             )
 
         annotations = search.get_annotations(component_name)
-        return self._format_spec_with_annotations(spec, annotations)
+        result = self._format_spec_with_annotations(spec, annotations)
+        from rtk_sf.dry_run import record_savings
+        record_savings("query_compressed_spec", raw_tokens=4000, compressed_tokens=len(result) // 4)
+        return result
 
     @staticmethod
     def _format_spec_with_annotations(spec: str, annotations: list) -> str:
@@ -438,19 +559,64 @@ class MCPServer:
         if not object_name:
             return "Error: object_name is required."
         from rtk_sf.data_tools import get_object_schema
+        from rtk_sf.dry_run import record_savings
         rtk_dir = self.project_root / ".rtk-sf"
-        return get_object_schema(object_name, rtk_dir)
+        result = get_object_schema(object_name, rtk_dir)
+        record_savings("get_object_schema", raw_tokens=5000, compressed_tokens=len(result) // 4)
+        return result
 
     def _tool_soql_query(self, args: dict) -> str:
         query = args.get("query", "").strip()
         if not query:
             return "Error: query is required."
         from rtk_sf.data_tools import run_soql
-        return run_soql(
+        from rtk_sf.dry_run import record_savings
+        result = run_soql(
             query=query,
             target_org=args.get("target_org"),
             sample_size=int(args.get("sample_size", 3)),
         )
+        record_savings("soql_query", raw_tokens=8000, compressed_tokens=len(result) // 4)
+        return result
+
+    def _tool_compact_prompt(self, args: dict) -> str:
+        text = args.get("text", "").strip()
+        if not text:
+            return "Error: text is required."
+        from rtk_sf.nlp_compactor import compact_prompt_report
+        return compact_prompt_report(text)
+
+    def _tool_validate_apex(self, args: dict) -> str:
+        code = args.get("code", "").strip()
+        if not code:
+            return "Error: code is required."
+        from rtk_sf.dry_run import validate_apex
+        return validate_apex(code)
+
+    def _tool_validate_soql(self, args: dict) -> str:
+        query = args.get("query", "").strip()
+        if not query:
+            return "Error: query is required."
+        from rtk_sf.dry_run import validate_soql
+        return validate_soql(query)
+
+    def _tool_get_roi_stats(self) -> str:
+        from rtk_sf.dry_run import get_roi_stats
+        return get_roi_stats()
+
+    def _tool_extract_image_text(self, args: dict) -> str:
+        image_path = args.get("image_path", "").strip()
+        if not image_path:
+            return "Error: image_path is required."
+        preprocess = bool(args.get("preprocess", True))
+        from rtk_sf.vision_ocr import extract_image_text
+        from rtk_sf.dry_run import record_savings
+        result = extract_image_text(image_path, preprocess=preprocess)
+        if not result.startswith("[rtk-sf OCR Error") and not result.startswith("[rtk-sf OCR:"):
+            # Successful extraction — record vision token savings
+            # Baseline: typical screenshot ~1,500 vision tokens; extracted text ~100-300 tokens
+            record_savings("extract_image_text", raw_tokens=1500, compressed_tokens=len(result) // 4)
+        return result
 
     def _tool_annotate(self, args: dict) -> str:
         component_name = args.get("component_name", "").strip()
@@ -494,11 +660,15 @@ class MCPServer:
                 best = hits[0]["name"]
                 result = skeleton_from_spec(best, rtk_dir, focus_methods)
                 if result:
+                    from rtk_sf.dry_run import record_savings
+                    record_savings("get_class_skeleton", raw_tokens=10000, compressed_tokens=len(result) // 4)
                     return f"# Closest match: {best}\n\n{result}"
             return (
                 f"Component '{component_name}' not found or is not an Apex class.\n"
                 "Run `rtk-sf index` to update the index."
             )
+        from rtk_sf.dry_run import record_savings
+        record_savings("get_class_skeleton", raw_tokens=10000, compressed_tokens=len(result) // 4)
         return result
 
     def _tool_sf_command(self, args: dict) -> str:

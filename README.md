@@ -117,9 +117,7 @@ This checks Python, installs rtk-sf, indexes your project, and prints your next 
 **Step 1 — Install**
 
 ```bash
-pip install git+https://github.com/furuCRM-Inc/rtk-sf.git@main
-# With vector re-ranking (optional):
-pip install "git+https://github.com/furuCRM-Inc/rtk-sf.git@main[vector]"
+pip install "rtk-sf[all] @ git+https://github.com/furuCRM-Inc/rtk-sf.git@main"
 ```
 
 **Step 2 — Index your Salesforce project**
@@ -143,7 +141,7 @@ Synced 84 components into search index.
 **Step 3 — Register with Claude Code**
 
 ```bash
-claude mcp add rtk-sf -- python -m rtk_sf serve
+claude mcp add rtk-sf -- python3 -m rtk_sf serve
 ```
 
 **Step 4 — Tell Claude to use rtk-sf (critical)**
@@ -186,7 +184,7 @@ Your AI agent now has instant, token-efficient access to your entire Salesforce 
 
 ```bash
 # Register the MCP server (run once per project)
-claude mcp add rtk-sf -- python -m rtk_sf serve
+claude mcp add rtk-sf -- python3 -m rtk_sf serve
 
 # Verify
 claude mcp list
@@ -213,7 +211,7 @@ Claude: What calls AccountService?
 
 ```bash
 # Start the server manually
-python -m rtk_sf serve
+python3 -m rtk_sf serve
 
 # The server reads JSON-RPC 2.0 from stdin, writes to stdout
 # Protocol: MCP 2024-11-05
@@ -258,7 +256,7 @@ Re-index (3 changed) : ~0.1 seconds
 
 ### Hybrid Search
 
-Keyword search uses SQLite's built-in **FTS5** full-text search — no external dependencies, no network calls. When `numpy` is installed (`pip install "git+https://github.com/furuCRM-Inc/rtk-sf.git@main[vector]"`), results are re-ranked using bag-of-words cosine similarity for improved relevance.
+Keyword search uses SQLite's built-in **FTS5** full-text search — no external dependencies, no network calls. When `numpy` is installed (included in the `[all]` bundle), results are re-ranked using bag-of-words cosine similarity for improved relevance.
 
 **Japanese search is fully supported.** rtk-sf uses the FTS5 `trigram` tokenizer combined with a LIKE fallback for 1–2 character terms, so Japanese metadata labels, picklist values, and annotation text are all searchable:
 
@@ -487,16 +485,21 @@ rtk-sf indexes all major Salesforce metadata types supported by the sf CLI, grou
 
 ## Installation
 
-### From GitHub
+### One command (recommended)
 
 ```bash
-pip install git+https://github.com/furuCRM-Inc/rtk-sf.git@main
+pip install "rtk-sf[all] @ git+https://github.com/furuCRM-Inc/rtk-sf.git@main"
 ```
 
-### With vector re-ranking
+Includes: core indexer + vector re-ranking (numpy) + local OCR (paddleocr + Pillow)
+
+### À la carte
 
 ```bash
-pip install "git+https://github.com/furuCRM-Inc/rtk-sf.git@main[vector]"
+pip install "git+https://github.com/furuCRM-Inc/rtk-sf.git@main"                                    # core only
+pip install "rtk-sf[vector] @ git+https://github.com/furuCRM-Inc/rtk-sf.git@main"                   # + vector re-ranking
+pip install "rtk-sf[ocr] @ git+https://github.com/furuCRM-Inc/rtk-sf.git@main"                      # + PaddleOCR (EN+JA)
+pip install "rtk-sf[ocr-fallback] @ git+https://github.com/furuCRM-Inc/rtk-sf.git@main"             # + EasyOCR fallback
 ```
 
 ### From source
