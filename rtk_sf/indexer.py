@@ -7,7 +7,7 @@ into compressed YAML specs. Uses mtime-based differential tracking so only
 changed files are re-indexed.
 
 Usage:
-    python -m rtk_sf index [--path ./force-app]
+    python3 -m rtk_sf index [--path ./force-app]
 """
 
 from __future__ import annotations

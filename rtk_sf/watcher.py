@@ -5,7 +5,7 @@ Uses the `watchdog` library to monitor a Salesforce DX project directory.
 When a .cls or .xml file changes, it is re-indexed immediately.
 
 Usage:
-    python -m rtk_sf watch [--path ./force-app]
+    python3 -m rtk_sf watch [--path ./force-app]
 """
 
 from __future__ import annotations

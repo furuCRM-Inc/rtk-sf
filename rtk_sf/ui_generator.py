@@ -7,7 +7,7 @@ that visualizes the Salesforce component graph with interactive node selection,
 path highlighting, and a YAML spec sidebar.
 
 Usage:
-    python -m rtk_sf ui [--project-root .] [--output dist/architecture_map.html]
+    python3 -m rtk_sf ui [--project-root .] [--output dist/architecture_map.html]
 """
 
 from __future__ import annotations

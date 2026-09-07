@@ -10,7 +10,7 @@
 # What this does:
 #   1. Checks Python 3.9+
 #   2. pip install rtk-sf[all]  (core + vector re-ranking + OCR)
-#   3. python -m rtk_sf install (index + patch CLAUDE.md + print next steps)
+#   3. python3 -m rtk_sf install (index + patch CLAUDE.md + print next steps)
 #
 # Requirements:
 #   - Python 3.9+ with pip

@@ -9,8 +9,8 @@ Supports subcommands:
     ui      — Generate the architecture map HTML
 
 Usage:
-    python -m rtk_sf install            # run after pip install
-    python -m rtk_sf <subcommand> [options]
+    python3 -m rtk_sf install            # run after pip install
+    python3 -m rtk_sf <subcommand> [options]
     rtk-sf <subcommand> [options]       (when installed via pip)
 """
 
@@ -100,7 +100,7 @@ This project is indexed by **rtk-sf**. Always use the MCP tools before reading r
 - sf data query              → `soql_query`
 - sf project deploy start    → `sf_command(action="deploy")`
 
-If search returns no results, re-index with: `python -m rtk_sf index`
+If search returns no results, re-index with: `python3 -m rtk_sf index`
 Do NOT use `npx rtk-sf` — rtk-sf is a Python package, not npm.
 """
 
@@ -115,8 +115,7 @@ Do NOT use `npx rtk-sf` — rtk-sf is a Python package, not npm.
 
 
 def _print_next_steps() -> None:
-    import shutil
-    python_cmd = "python3" if shutil.which("python3") else "python"
+    python_cmd = "python3"
 
     print()
     _bold("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -324,7 +323,7 @@ Examples:
   rtk-sf ui --output ~/Desktop/map.html
 
 MCP integration:
-  claude mcp add rtk-sf -- python -m rtk_sf serve
+  claude mcp add rtk-sf -- python3 -m rtk_sf serve
 
 Built by furuCRM Inc. — https://www.furucrm.com
 """,

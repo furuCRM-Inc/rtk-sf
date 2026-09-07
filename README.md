@@ -141,7 +141,7 @@ Synced 84 components into search index.
 **Step 3 — Register with Claude Code**
 
 ```bash
-claude mcp add rtk-sf -- python -m rtk_sf serve
+claude mcp add rtk-sf -- python3 -m rtk_sf serve
 ```
 
 **Step 4 — Tell Claude to use rtk-sf (critical)**
@@ -184,7 +184,7 @@ Your AI agent now has instant, token-efficient access to your entire Salesforce 
 
 ```bash
 # Register the MCP server (run once per project)
-claude mcp add rtk-sf -- python -m rtk_sf serve
+claude mcp add rtk-sf -- python3 -m rtk_sf serve
 
 # Verify
 claude mcp list
@@ -211,7 +211,7 @@ Claude: What calls AccountService?
 
 ```bash
 # Start the server manually
-python -m rtk_sf serve
+python3 -m rtk_sf serve
 
 # The server reads JSON-RPC 2.0 from stdin, writes to stdout
 # Protocol: MCP 2024-11-05

@@ -27,8 +27,8 @@ Protocol:
     - Logs diagnostics to stderr (never stdout).
 
 Usage:
-    python -m rtk_sf serve [--project-root .]
-    claude mcp add rtk-sf -- python -m rtk_sf serve
+    python3 -m rtk_sf serve [--project-root .]
+    claude mcp add rtk-sf -- python3 -m rtk_sf serve
 """
 
 from __future__ import annotations
