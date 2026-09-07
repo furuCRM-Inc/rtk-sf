@@ -66,19 +66,12 @@ _JA_FILLERS: list[str] = [
     r"よろしくお願いいたします[。！]?",
     r"よろしくお願い申し上げます[。！]?",
     r"お願いいたします[。！]?",
-    # Confirmation requests
-    r"確認してもらえますか[？。]?",
-    r"確認してください[。]?",
-    r"確認お願いします[。]?",
-    r"チェックしてください[。]?",
-    r"チェックしてもらえますか[？。]?",
-    r"見てもらえますか[？。]?",
-    r"見てください[。]?",
-    # Action request suffixes
+    # Polite action request suffixes — strip the suffix, preserve the verb before it
+    # e.g. "確認してください" → "確認"  (keep the intent verb, drop the polite wrapper)
     r"してください[。]?",
     r"して下さい[。]?",
-    r"してもらえますか[？]?",
-    r"していただけますか[？]?",
+    r"してもらえますか[？。]?",
+    r"していただけますか[？。]?",
     r"していただけると幸いです[。]?",
     r"してほしいです[。]?",
     r"してほしいのですが[。]?",

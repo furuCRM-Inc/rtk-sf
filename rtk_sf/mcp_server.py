@@ -490,10 +490,13 @@ class MCPServer:
                 if spec:
                     component_name = best["name"]
                     annotations = search.get_annotations(component_name)
-                    return self._format_spec_with_annotations(
+                    result = self._format_spec_with_annotations(
                         f"# Closest match: {component_name}\n\n{spec}",
                         annotations,
                     )
+                    from rtk_sf.dry_run import record_savings
+                    record_savings("query_compressed_spec", raw_tokens=4000, compressed_tokens=len(result) // 4)
+                    return result
             return (
                 f"Component '{component_name}' not found in index.\n"
                 "Run `rtk-sf index` to update the index."
@@ -610,6 +613,8 @@ class MCPServer:
                 best = hits[0]["name"]
                 result = skeleton_from_spec(best, rtk_dir, focus_methods)
                 if result:
+                    from rtk_sf.dry_run import record_savings
+                    record_savings("get_class_skeleton", raw_tokens=10000, compressed_tokens=len(result) // 4)
                     return f"# Closest match: {best}\n\n{result}"
             return (
                 f"Component '{component_name}' not found or is not an Apex class.\n"
