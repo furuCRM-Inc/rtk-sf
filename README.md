@@ -117,9 +117,9 @@ This checks Python, installs rtk-sf, indexes your project, and prints your next 
 **Step 1 — Install**
 
 ```bash
-pip install rtk-sf
+pip install git+https://github.com/furuCRM-Inc/rtk-sf.git@main
 # With vector re-ranking (optional):
-pip install "rtk-sf[vector]"
+pip install "git+https://github.com/furuCRM-Inc/rtk-sf.git@main[vector]"
 ```
 
 **Step 2 — Index your Salesforce project**
@@ -479,16 +479,16 @@ rtk-sf indexes all major Salesforce metadata types supported by the sf CLI, grou
 
 ## Installation
 
-### From PyPI
+### From GitHub
 
 ```bash
-pip install rtk-sf
+pip install git+https://github.com/furuCRM-Inc/rtk-sf.git@main
 ```
 
 ### With vector re-ranking
 
 ```bash
-pip install "rtk-sf[vector]"
+pip install "git+https://github.com/furuCRM-Inc/rtk-sf.git@main[vector]"
 ```
 
 ### From source

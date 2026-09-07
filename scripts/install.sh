@@ -70,14 +70,16 @@ check_python() {
 # ---------------------------------------------------------------------------
 # Step 2: Install rtk-sf
 # ---------------------------------------------------------------------------
-install_rtk_sf() {
-  info "Installing rtk-sf..."
+RTK_REPO="https://github.com/furuCRM-Inc/rtk-sf.git"
 
-  if "$PYTHON_CMD" -m pip install --quiet rtk-sf 2>&1; then
+install_rtk_sf() {
+  info "Installing rtk-sf from GitHub..."
+
+  if "$PYTHON_CMD" -m pip install --quiet "git+${RTK_REPO}@main" 2>&1; then
     success "rtk-sf installed successfully."
   else
     error "pip install failed."
-    error "Try manually: pip install rtk-sf"
+    error "Try manually: pip install git+${RTK_REPO}@main"
     exit 1
   fi
 
