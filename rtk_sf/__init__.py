@@ -8,7 +8,7 @@ dramatically reducing token consumption.
 
 __version__ = "0.4.1"
 __author__ = "furuCRM Inc."
-__email__ = "dev@furucrm.com"
+__email__ = "contact@furucrm.com"
 __license__ = "MIT"
 
 from rtk_sf.indexer import SalesforceIndexer
