@@ -38,10 +38,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-vector = ["numpy>=2.5.2"]
+vector = ["numpy>=1.26.0"]
 ocr = ["paddleocr", "Pillow"]
 ocr-fallback = ["easyocr", "Pillow"]
-all = ["numpy>=2.5.2", "paddleocr", "Pillow"]
+all = ["numpy>=1.26.0", "paddleocr", "Pillow"]
 dev = [
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
