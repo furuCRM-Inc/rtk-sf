@@ -19,6 +19,7 @@ Tools exposed:
     validate_apex(code)                         → local Apex dry-run check (v0.5.0)
     validate_soql(query)                        → local SOQL dry-run check (v0.5.0)
     get_roi_stats()                             → session token/dollar savings report (v0.5.0)
+    extract_image_text(image_path)             → local OCR — bypasses vision tokens (v0.5.0)
 
 Protocol:
     - Reads JSON-RPC 2.0 requests line-by-line from stdin.
@@ -317,6 +318,36 @@ _TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "extract_image_text",
+        "description": (
+            "Extract English and Japanese text from an image file using local OCR — "
+            "bypassing Claude's multimodal vision token cost entirely. "
+            "Uses PaddleOCR (primary) or EasyOCR (fallback). "
+            "Supports: .png .jpg .jpeg .bmp .tiff .webp. "
+            "Token impact: a 1280×800 screenshot costs ~1,600 vision tokens as an image; "
+            "this returns the extracted text at ~100–300 tokens instead. "
+            "Use this when the user attaches a screenshot, mockup, error dialog, or form image."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "image_path": {
+                    "type": "string",
+                    "description": "Absolute or relative path to the image file.",
+                },
+                "preprocess": {
+                    "type": "boolean",
+                    "description": (
+                        "Apply grayscale + contrast boost before OCR. "
+                        "Helps with low-contrast screenshots or dark-mode UIs (default true)."
+                    ),
+                    "default": True,
+                },
+            },
+            "required": ["image_path"],
+        },
+    },
+    {
         "name": "annotate_component",
         "description": (
             "Record a discovered business rule, condition, or context note on a component. "
@@ -460,6 +491,8 @@ class MCPServer:
                 result = self._tool_validate_soql(arguments)
             elif tool_name == "get_roi_stats":
                 result = self._tool_get_roi_stats()
+            elif tool_name == "extract_image_text":
+                result = self._tool_extract_image_text(arguments)
             else:
                 self._write(self._error(request_id, -32601, f"Unknown tool: {tool_name}"))
                 return
@@ -570,6 +603,20 @@ class MCPServer:
     def _tool_get_roi_stats(self) -> str:
         from rtk_sf.dry_run import get_roi_stats
         return get_roi_stats()
+
+    def _tool_extract_image_text(self, args: dict) -> str:
+        image_path = args.get("image_path", "").strip()
+        if not image_path:
+            return "Error: image_path is required."
+        preprocess = bool(args.get("preprocess", True))
+        from rtk_sf.vision_ocr import extract_image_text
+        from rtk_sf.dry_run import record_savings
+        result = extract_image_text(image_path, preprocess=preprocess)
+        if not result.startswith("[rtk-sf OCR Error") and not result.startswith("[rtk-sf OCR:"):
+            # Successful extraction — record vision token savings
+            # Baseline: typical screenshot ~1,500 vision tokens; extracted text ~100-300 tokens
+            record_savings("extract_image_text", raw_tokens=1500, compressed_tokens=len(result) // 4)
+        return result
 
     def _tool_annotate(self, args: dict) -> str:
         component_name = args.get("component_name", "").strip()
