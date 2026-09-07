@@ -202,18 +202,29 @@ print_next_steps() {
   info "Next steps:"
   echo ""
   echo "  1. Register with Claude Code:"
-  echo -e "     ${BOLD}claude mcp add rtk-sf -- python -m rtk_sf serve${NC}"
+  echo -e "     ${BOLD}claude mcp add rtk-sf -- $PYTHON_CMD -m rtk_sf serve${NC}"
   echo ""
   echo "  2. Generate the visual architecture map:"
-  echo -e "     ${BOLD}rtk-sf ui${NC}"
+  echo -e "     ${BOLD}$PYTHON_CMD -m rtk_sf ui${NC}"
   echo -e "     ${BOLD}open dist/architecture_map.html${NC}"
   echo ""
   echo "  3. Enable live file watching during development:"
-  echo -e "     ${BOLD}rtk-sf watch${NC}"
+  echo -e "     ${BOLD}$PYTHON_CMD -m rtk_sf watch${NC}"
   echo ""
   echo "  4. Re-index after adding new Apex classes or objects:"
-  echo -e "     ${BOLD}rtk-sf index${NC}"
+  echo -e "     ${BOLD}$PYTHON_CMD -m rtk_sf index${NC}"
   echo ""
+  # Detect if the rtk-sf CLI is in PATH; if not, show how to add it
+  if ! command -v rtk-sf &>/dev/null; then
+    local script_dir
+    script_dir=$("$PYTHON_CMD" -c "import sysconfig; print(sysconfig.get_path('scripts'))" 2>/dev/null || echo "")
+    if [ -n "$script_dir" ]; then
+      warn "Note: 'rtk-sf' CLI not in PATH. Add it with:"
+      echo -e "     ${BOLD}export PATH=\"\$PATH:$script_dir\"${NC}"
+      echo "     (Add this line to your ~/.zshrc or ~/.bashrc to make it permanent)"
+      echo ""
+    fi
+  fi
   info "Docs: https://github.com/furuCRM-Inc/rtk-sf"
   echo ""
   echo -e "Built with love by ${BOLD}furuCRM Inc.${NC} — https://www.furucrm.com"
