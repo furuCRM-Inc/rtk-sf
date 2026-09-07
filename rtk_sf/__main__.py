@@ -104,6 +104,11 @@ This project is indexed by **rtk-sf**. Always use the MCP tools before reading r
 - sf sobject describe        → `get_object_schema`
 - sf data query              → `soql_query`
 - sf project deploy start    → `sf_command(action="deploy")`
+- Read an inline pasted image with native vision → ask for the file path, then `extract_image_text(path)`
+
+**Image / screenshot rule:** `extract_image_text` requires a file path on disk.
+If the user pastes an image inline without a path, reply:
+"To save vision tokens, please share the file path (e.g. `~/Downloads/screenshot.png`) so I can run local OCR instead."
 
 If search returns no results, re-index with: `python3 -m rtk_sf index`
 Do NOT use `npx rtk-sf` — rtk-sf is a Python package, not npm.
