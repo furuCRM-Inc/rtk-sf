@@ -117,9 +117,7 @@ This checks Python, installs rtk-sf, indexes your project, and prints your next 
 **Step 1 — Install**
 
 ```bash
-pip install git+https://github.com/furuCRM-Inc/rtk-sf.git@main
-# With vector re-ranking (optional):
-pip install "git+https://github.com/furuCRM-Inc/rtk-sf.git@main[vector]"
+pip install "git+https://github.com/furuCRM-Inc/rtk-sf.git@main#egg=rtk-sf[all]"
 ```
 
 **Step 2 — Index your Salesforce project**
@@ -258,7 +256,7 @@ Re-index (3 changed) : ~0.1 seconds
 
 ### Hybrid Search
 
-Keyword search uses SQLite's built-in **FTS5** full-text search — no external dependencies, no network calls. When `numpy` is installed (`pip install "git+https://github.com/furuCRM-Inc/rtk-sf.git@main[vector]"`), results are re-ranked using bag-of-words cosine similarity for improved relevance.
+Keyword search uses SQLite's built-in **FTS5** full-text search — no external dependencies, no network calls. When `numpy` is installed (included in the `[all]` bundle), results are re-ranked using bag-of-words cosine similarity for improved relevance.
 
 **Japanese search is fully supported.** rtk-sf uses the FTS5 `trigram` tokenizer combined with a LIKE fallback for 1–2 character terms, so Japanese metadata labels, picklist values, and annotation text are all searchable:
 
@@ -487,16 +485,21 @@ rtk-sf indexes all major Salesforce metadata types supported by the sf CLI, grou
 
 ## Installation
 
-### From GitHub
+### One command (recommended)
 
 ```bash
-pip install git+https://github.com/furuCRM-Inc/rtk-sf.git@main
+pip install "git+https://github.com/furuCRM-Inc/rtk-sf.git@main#egg=rtk-sf[all]"
 ```
 
-### With vector re-ranking
+Includes: core indexer + vector re-ranking (numpy) + local OCR (paddleocr + Pillow)
+
+### À la carte
 
 ```bash
-pip install "git+https://github.com/furuCRM-Inc/rtk-sf.git@main[vector]"
+pip install "git+https://github.com/furuCRM-Inc/rtk-sf.git@main"                        # core only
+pip install "git+https://github.com/furuCRM-Inc/rtk-sf.git@main#egg=rtk-sf[vector]"     # + vector re-ranking
+pip install "git+https://github.com/furuCRM-Inc/rtk-sf.git@main#egg=rtk-sf[ocr]"        # + PaddleOCR (EN+JA)
+pip install "git+https://github.com/furuCRM-Inc/rtk-sf.git@main#egg=rtk-sf[ocr-fallback]" # + EasyOCR fallback
 ```
 
 ### From source

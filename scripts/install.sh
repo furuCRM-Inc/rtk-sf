@@ -75,11 +75,11 @@ RTK_REPO="https://github.com/furuCRM-Inc/rtk-sf.git"
 install_rtk_sf() {
   info "Installing rtk-sf from GitHub..."
 
-  if "$PYTHON_CMD" -m pip install --quiet "git+${RTK_REPO}@main" 2>&1; then
-    success "rtk-sf installed successfully."
+  if "$PYTHON_CMD" -m pip install --quiet "git+${RTK_REPO}@main#egg=rtk-sf[all]" 2>&1; then
+    success "rtk-sf installed successfully (all extras: vector re-ranking + OCR)."
   else
     error "pip install failed."
-    error "Try manually: pip install git+${RTK_REPO}@main"
+    error "Try manually: pip install \"git+${RTK_REPO}@main#egg=rtk-sf[all]\""
     exit 1
   fi
 

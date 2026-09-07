@@ -41,6 +41,7 @@ dependencies = [
 vector = ["numpy>=2.5.2"]
 ocr = ["paddleocr", "Pillow"]
 ocr-fallback = ["easyocr", "Pillow"]
+all = ["numpy>=2.5.2", "paddleocr", "Pillow"]
 dev = [
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
