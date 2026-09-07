@@ -23,7 +23,8 @@ import sys
 from pathlib import Path
 
 # CLAUDE.md markers used by install and upgrade detection
-_MARKER_V4 = "get_class_skeleton"
+_MARKER_V5 = "get_roi_stats"        # v0.5-only tool — confirms full 14-tool block
+_MARKER_V4 = "get_class_skeleton"   # v0.4 tool — present but missing 5 new v0.5 tools
 _MARKER_BASE = "## Code Search"
 
 
@@ -54,13 +55,16 @@ def _detect_sf_source(project_root: Path) -> Path | None:
 def _patch_claude_md(project_root: Path) -> None:
     claude_md = project_root / "CLAUDE.md"
 
-    if claude_md.exists() and _MARKER_V4 in claude_md.read_text(encoding="utf-8"):
-        _success("CLAUDE.md already has rtk-sf v0.4+ instructions. Skipping.")
+    if claude_md.exists() and _MARKER_V5 in claude_md.read_text(encoding="utf-8"):
+        _success("CLAUDE.md already has rtk-sf v0.5 instructions. Skipping.")
         return
 
-    # Strip old v0.3 block if present
+    # Strip old block (v0.3 or v0.4) if present, then rewrite with full v0.5 tool list
     if claude_md.exists() and _MARKER_BASE in claude_md.read_text(encoding="utf-8"):
-        _warn("Upgrading CLAUDE.md from v0.3 to v0.5 tool list...")
+        if _MARKER_V4 in claude_md.read_text(encoding="utf-8"):
+            _warn("Upgrading CLAUDE.md from v0.4 to v0.5 tool list (5 new tools)...")
+        else:
+            _warn("Upgrading CLAUDE.md from v0.3 to v0.5 tool list...")
         lines = claude_md.read_text(encoding="utf-8").splitlines()
         in_block = False
         kept: list[str] = []
