@@ -116,7 +116,23 @@ check_python() {
 }
 
 # ---------------------------------------------------------------------------
-# Step 2: pip install rtk-sf[all]
+# Step 2: Ensure pip >= 22 (required for PEP 508 "name @ git+url" syntax)
+# ---------------------------------------------------------------------------
+upgrade_pip() {
+  PIP_VERSION=$("$PYTHON_CMD" -m pip --version 2>/dev/null | awk '{print $2}')
+  PIP_MAJOR="${PIP_VERSION%%.*}"
+  if [ -z "$PIP_MAJOR" ] || [ "$PIP_MAJOR" -lt 22 ]; then
+    info "pip $PIP_VERSION is too old (need 22+). Upgrading pip..."
+    "$PYTHON_CMD" -m pip install --quiet --upgrade pip || {
+      error "Failed to upgrade pip. Try: $PYTHON_CMD -m pip install --upgrade pip"
+      exit 1
+    }
+    success "pip upgraded."
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Step 3: pip install rtk-sf[all]
 # ---------------------------------------------------------------------------
 install_rtk_sf() {
   info "Installing rtk-sf[all] from GitHub..."
@@ -148,6 +164,7 @@ main() {
   echo ""
 
   check_python
+  upgrade_pip
   install_rtk_sf
   run_setup
 }
