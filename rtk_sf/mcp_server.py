@@ -326,14 +326,18 @@ _TOOLS: list[dict[str, Any]] = [
             "Supports: .png .jpg .jpeg .bmp .tiff .webp. "
             "Token impact: a 1280×800 screenshot costs ~1,600 vision tokens as an image; "
             "this returns the extracted text at ~100–300 tokens instead. "
-            "Use this when the user attaches a screenshot, mockup, error dialog, or form image."
+            "IMPORTANT: requires a file path on disk. "
+            "When the user pastes an image inline (no path given), ask them: "
+            "'To avoid vision token cost, please share the file path (e.g. ~/Downloads/screenshot.png) "
+            "so I can run local OCR instead.' "
+            "Do NOT read inline images with native vision when a path can be obtained."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "image_path": {
                     "type": "string",
-                    "description": "Absolute or relative path to the image file.",
+                    "description": "Absolute or relative path to the image file on disk. Not for inline/pasted images.",
                 },
                 "preprocess": {
                     "type": "boolean",

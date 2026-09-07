@@ -23,8 +23,9 @@ import sys
 from pathlib import Path
 
 # CLAUDE.md markers used by install and upgrade detection
-_MARKER_V5 = "get_roi_stats"        # v0.5-only tool — confirms full 14-tool block
-_MARKER_V4 = "get_class_skeleton"   # v0.4 tool — present but missing 5 new v0.5 tools
+_MARKER_V5_1 = "Image / screenshot rule"  # v0.5.1 — inline image guidance added
+_MARKER_V5 = "get_roi_stats"              # v0.5 — 14-tool block, missing image rule
+_MARKER_V4 = "get_class_skeleton"         # v0.4 — 9-tool block
 _MARKER_BASE = "## Code Search"
 
 
@@ -55,16 +56,19 @@ def _detect_sf_source(project_root: Path) -> Path | None:
 def _patch_claude_md(project_root: Path) -> None:
     claude_md = project_root / "CLAUDE.md"
 
-    if claude_md.exists() and _MARKER_V5 in claude_md.read_text(encoding="utf-8"):
-        _success("CLAUDE.md already has rtk-sf v0.5 instructions. Skipping.")
+    if claude_md.exists() and _MARKER_V5_1 in claude_md.read_text(encoding="utf-8"):
+        _success("CLAUDE.md already has rtk-sf v0.5.1 instructions. Skipping.")
         return
 
-    # Strip old block (v0.3 or v0.4) if present, then rewrite with full v0.5 tool list
+    # Strip old block (v0.3 / v0.4 / v0.5) and rewrite with latest tool list
     if claude_md.exists() and _MARKER_BASE in claude_md.read_text(encoding="utf-8"):
-        if _MARKER_V4 in claude_md.read_text(encoding="utf-8"):
-            _warn("Upgrading CLAUDE.md from v0.4 to v0.5 tool list (5 new tools)...")
+        text = claude_md.read_text(encoding="utf-8")
+        if _MARKER_V5 in text and _MARKER_V4 in text:
+            _warn("Upgrading CLAUDE.md from v0.5 to v0.5.1 (inline image guidance)...")
+        elif _MARKER_V4 in text:
+            _warn("Upgrading CLAUDE.md from v0.4 to v0.5.1 (5 new tools + image rule)...")
         else:
-            _warn("Upgrading CLAUDE.md from v0.3 to v0.5 tool list...")
+            _warn("Upgrading CLAUDE.md from v0.3 to v0.5.1...")
         lines = claude_md.read_text(encoding="utf-8").splitlines()
         in_block = False
         kept: list[str] = []
@@ -104,6 +108,11 @@ This project is indexed by **rtk-sf**. Always use the MCP tools before reading r
 - sf sobject describe        → `get_object_schema`
 - sf data query              → `soql_query`
 - sf project deploy start    → `sf_command(action="deploy")`
+- Read an inline pasted image with native vision → ask for the file path, then `extract_image_text(path)`
+
+**Image / screenshot rule:** `extract_image_text` requires a file path on disk.
+If the user pastes an image inline without a path, reply:
+"To save vision tokens, please share the file path (e.g. `~/Downloads/screenshot.png`) so I can run local OCR instead."
 
 If search returns no results, re-index with: `python3 -m rtk_sf index`
 Do NOT use `npx rtk-sf` — rtk-sf is a Python package, not npm.
