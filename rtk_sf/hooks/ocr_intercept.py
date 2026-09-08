@@ -6,6 +6,10 @@ Claude Code hook protocol:
   stdin : JSON {"tool_name": "Read", "tool_input": {"file_path": "..."}, ...}
   exit 0: allow the Read to proceed normally
   exit 2: block — stdout text is shown to Claude as the result instead
+
+NOTE: inline pasted images bypass this hook entirely because Claude uses native
+vision without calling Read.  The CLAUDE.md guidance instructs Claude to ask for
+a file path in that case.
 """
 
 from __future__ import annotations
@@ -27,9 +31,11 @@ def main() -> None:
     if not file_path or Path(file_path).suffix.lower() not in IMAGE_EXTS:
         sys.exit(0)
 
+    from rtk_sf.hooks._log import append
     try:
         from rtk_sf.vision_ocr import extract_image_text
         text = extract_image_text(str(file_path))
+        append("ocr", "ok", path=file_path, chars=len(text))
         sys.stdout.write(
             f"[rtk-sf OCR] Intercepted Read on image — ran local OCR instead "
             f"(saves ~1,500 vision tokens).\n\n"
@@ -38,6 +44,7 @@ def main() -> None:
         )
         sys.exit(2)
     except Exception as exc:
+        append("ocr", "error", path=file_path, err=str(exc))
         sys.stdout.write(f"[rtk-sf OCR] OCR failed ({exc}), falling back to native Read.\n")
         sys.exit(0)
 
