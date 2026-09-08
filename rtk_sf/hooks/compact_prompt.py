@@ -11,7 +11,7 @@ Claude Code hook protocol:
 Only fires when:
   - prompt length > 300 chars AND
   - contains Japanese characters OR length > 800 chars (long English prompt)
-  - compaction achieves > 50 char reduction
+  - compaction achieves > 5% reduction
 """
 
 from __future__ import annotations
@@ -39,16 +39,29 @@ def main() -> None:
     threshold = MIN_CHARS_JA if has_ja else MIN_CHARS_EN
 
     if len(prompt) < threshold:
+        try:
+            from rtk_sf.hooks._log import append
+            append("compact", "skip:too_short", chars=len(prompt), threshold=threshold)
+        except Exception:
+            pass
         sys.exit(0)
 
     try:
         from rtk_sf.nlp_compactor import compact_prompt
+        from rtk_sf.hooks._log import append
         compacted, orig_chars, new_chars = compact_prompt(prompt)
         savings_pct = (orig_chars - new_chars) / orig_chars * 100 if orig_chars else 0
         if savings_pct < MIN_SAVINGS_PCT:
+            append("compact", "skip:no_savings", orig=orig_chars, new=new_chars, pct=round(savings_pct, 1))
             sys.exit(0)
+        append("compact", "ok", orig=orig_chars, new=new_chars, pct=round(savings_pct, 1))
         sys.stdout.write(json.dumps({"prompt": compacted}))
-    except Exception:
+    except Exception as exc:
+        try:
+            from rtk_sf.hooks._log import append
+            append("compact", "error", err=str(exc))
+        except Exception:
+            pass
         sys.exit(0)
 
 

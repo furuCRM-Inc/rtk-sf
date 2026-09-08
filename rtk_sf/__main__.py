@@ -476,6 +476,52 @@ def cmd_ui(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_hook_stats(args: argparse.Namespace) -> int:
+    """Show recent hook activity from ~/.rtk-sf-hooks.log."""
+    from pathlib import Path as _Path
+    log_path = _Path.home() / ".rtk-sf-hooks.log"
+    if not log_path.exists():
+        _warn("No hook log yet — hooks have not fired since last install.")
+        _info("Tip: hooks only fire inside a Claude Code session.")
+        return 0
+
+    from rtk_sf.hooks._log import tail
+    n = getattr(args, "lines", 20)
+    records = tail(n)
+    if not records:
+        _warn("Log exists but is empty.")
+        return 0
+
+    import json as _json
+    # Summary counters
+    stats: dict[str, dict[str, int]] = {}
+    for r in records:
+        hook = r.get("hook", "?")
+        status = r.get("status", "?")
+        stats.setdefault(hook, {}).setdefault(status, 0)
+        stats[hook][status] += 1
+
+    _bold("\n━━━  rtk-sf hook activity (last %d entries)  ━━━" % len(records))
+    print()
+    for hook, counts in stats.items():
+        label = {"compact": "NLP compact_prompt", "ocr": "OCR intercept"}.get(hook, hook)
+        print(f"  {label}:")
+        for status, count in counts.items():
+            print(f"    {status:30s}  ×{count}")
+    print()
+    _bold("Recent entries:")
+    for r in records[-10:]:
+        ts = r.get("ts", "")[:19].replace("T", " ")
+        hook = r.get("hook", "?")
+        status = r.get("status", "?")
+        extra = {k: v for k, v in r.items() if k not in ("ts", "hook", "status")}
+        extra_str = ("  " + _json.dumps(extra, ensure_ascii=False)) if extra else ""
+        print(f"  {ts}  [{hook:7s}]  {status}{extra_str}")
+    print()
+    _info(f"Full log: {log_path}")
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # Argument parser
 # ---------------------------------------------------------------------------
@@ -576,6 +622,20 @@ Built by furuCRM Inc. — https://www.furucrm.com
         help="Output HTML path (default: dist/architecture_map.html)",
     )
     p_ui.set_defaults(func=cmd_ui)
+
+    # hook-stats
+    p_stats = subparsers.add_parser(
+        "hook-stats",
+        help="Show recent OCR / NLP hook activity from ~/.rtk-sf-hooks.log",
+    )
+    p_stats.add_argument(
+        "-n", "--lines",
+        type=int,
+        default=20,
+        metavar="N",
+        help="Number of log entries to display (default: 20)",
+    )
+    p_stats.set_defaults(func=cmd_hook_stats)
 
     return parser
 
