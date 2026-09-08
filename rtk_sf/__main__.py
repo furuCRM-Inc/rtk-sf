@@ -161,38 +161,60 @@ def _patch_claude_settings(project_root: Path) -> None:
 
     hooks = config.setdefault("hooks", {})
 
-    def _find_rtk_hook(event: str, module: str) -> dict | None:
-        """Return the hook entry that references this rtk_sf module, if any."""
+    def _hook_key(module: str) -> str:
+        """Bare script name shared by all formats of an rtk_sf hook command."""
+        return module.split(".")[-1]  # e.g. "ocr_intercept"
+
+    def _find_and_dedupe(event: str, module: str, correct_cmd: str) -> tuple[dict | None, bool]:
+        """Find the rtk_sf hook entry for *module*, update its command, and
+        remove any duplicate outer entries.  Returns (hook_dict_or_None, changed).
+        """
+        key = _hook_key(module)
+        first_hook: dict | None = None
+        dirty = False
+
+        surviving_entries = []
         for entry in hooks.get(event, []):
-            for h in entry.get("hooks", []):
-                if module in h.get("command", ""):
-                    return h
-        return None
+            matches = [h for h in entry.get("hooks", []) if key in h.get("command", "")]
+            if not matches:
+                surviving_entries.append(entry)
+                continue
+            if first_hook is None:
+                # keep this entry; update its command if stale
+                h = matches[0]
+                if h.get("command") != correct_cmd:
+                    h["command"] = correct_cmd
+                    dirty = True
+                first_hook = h
+                surviving_entries.append(entry)
+            else:
+                dirty = True  # drop duplicate outer entry
+
+        if dirty or len(surviving_entries) != len(hooks.get(event, [])):
+            hooks[event] = surviving_entries
+            dirty = True
+        return first_hook, dirty
 
     changed = False
 
     # PreToolUse[Read] → OCR intercept
-    existing_ocr = _find_rtk_hook("PreToolUse", _OCR_MODULE)
+    existing_ocr, ocr_changed = _find_and_dedupe("PreToolUse", _OCR_MODULE, ocr_cmd)
+    changed |= ocr_changed
     if existing_ocr is None:
         hooks.setdefault("PreToolUse", []).append({
             "matcher": "Read",
             "hooks": [{"type": "command", "command": ocr_cmd}],
         })
         changed = True
-    elif existing_ocr.get("command") != ocr_cmd:
-        existing_ocr["command"] = ocr_cmd  # update stale python path
-        changed = True
 
     # UserPromptSubmit → compact prompt
-    existing_compact = _find_rtk_hook("UserPromptSubmit", _COMPACT_MODULE)
+    existing_compact, compact_changed = _find_and_dedupe("UserPromptSubmit", _COMPACT_MODULE, compact_cmd)
+    changed |= compact_changed
     if existing_compact is None:
         hooks.setdefault("UserPromptSubmit", []).append({
             "matcher": "",
             "hooks": [{"type": "command", "command": compact_cmd}],
         })
-        changed = True
-    elif existing_compact.get("command") != compact_cmd:
-        existing_compact["command"] = compact_cmd  # update stale python path
         changed = True
 
     if changed:
