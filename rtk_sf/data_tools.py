@@ -22,12 +22,16 @@ import json
 import logging
 import re
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 logger = logging.getLogger(__name__)
+
+# On Windows, sf is installed as sf.cmd; shell=True is required to resolve it.
+_SHELL = sys.platform == "win32"
 
 _SAMPLE_SIZE_DEFAULT = 3
 _LIMIT_RE = re.compile(r"\bLIMIT\s+(\d+)\b", re.IGNORECASE)
@@ -212,7 +216,7 @@ def run_soql(
     logger.info("soql: %s", capped_query)
 
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60, shell=_SHELL)
     except FileNotFoundError:
         return "❌ sf CLI not found. Install: https://developer.salesforce.com/tools/salesforcecli"
     except subprocess.TimeoutExpired:
