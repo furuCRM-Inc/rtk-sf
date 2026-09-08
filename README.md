@@ -171,6 +171,22 @@ That's it — upgrades pip, reinstalls rtk-sf, updates CLAUDE.md, and wires hook
 
 > Re-indexing is incremental — unchanged files are skipped automatically.
 
+### Troubleshooting: `invalid choice: 'update'`
+
+If you see this error:
+
+```
+rtk-sf: error: argument COMMAND: invalid choice: 'update'
+```
+
+Your installed version predates the `update` command. Run this once to bootstrap:
+
+```bash
+python3 -m pip install --quiet "git+https://github.com/furuCRM-Inc/rtk-sf.git@main" && python3 -m rtk_sf update
+```
+
+After this, `python3 -m rtk_sf update` works for all future upgrades.
+
 ---
 
 ## MCP Integration
