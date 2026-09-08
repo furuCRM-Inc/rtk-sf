@@ -182,7 +182,7 @@ rtk-sf: error: argument COMMAND: invalid choice: 'update'
 Your installed version predates the `update` command. Run this once to bootstrap:
 
 ```bash
-python3 -m pip install --quiet "git+https://github.com/furuCRM-Inc/rtk-sf.git@main" && python3 -m rtk_sf update
+python3 -m pip install --force-reinstall --no-cache-dir "git+https://github.com/furuCRM-Inc/rtk-sf.git@main" && python3 -m rtk_sf update
 ```
 
 After this, `python3 -m rtk_sf update` works for all future upgrades.
