@@ -39,8 +39,11 @@ def main() -> None:
     threshold = MIN_CHARS_JA if has_ja else MIN_CHARS_EN
 
     if len(prompt) < threshold:
-        from rtk_sf.hooks._log import append
-        append("compact", "skip:too_short", chars=len(prompt), threshold=threshold)
+        try:
+            from rtk_sf.hooks._log import append
+            append("compact", "skip:too_short", chars=len(prompt), threshold=threshold)
+        except Exception:
+            pass
         sys.exit(0)
 
     try:

@@ -31,11 +31,16 @@ def main() -> None:
     if not file_path or Path(file_path).suffix.lower() not in IMAGE_EXTS:
         sys.exit(0)
 
-    from rtk_sf.hooks._log import append
+    try:
+        from rtk_sf.hooks._log import append as _log
+    except Exception:
+        _log = None  # type: ignore[assignment]
+
     try:
         from rtk_sf.vision_ocr import extract_image_text
         text = extract_image_text(str(file_path))
-        append("ocr", "ok", path=file_path, chars=len(text))
+        if _log:
+            _log("ocr", "ok", path=file_path, chars=len(text))
         sys.stdout.write(
             f"[rtk-sf OCR] Intercepted Read on image — ran local OCR instead "
             f"(saves ~1,500 vision tokens).\n\n"
@@ -44,7 +49,8 @@ def main() -> None:
         )
         sys.exit(2)
     except Exception as exc:
-        append("ocr", "error", path=file_path, err=str(exc))
+        if _log:
+            _log("ocr", "error", path=file_path, err=str(exc))
         sys.stdout.write(f"[rtk-sf OCR] OCR failed ({exc}), falling back to native Read.\n")
         sys.exit(0)
 
