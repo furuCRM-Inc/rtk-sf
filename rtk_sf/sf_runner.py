@@ -24,10 +24,15 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
+import sys
 import time
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# On Windows, sf is installed as sf.cmd (a batch file).
+# subprocess without shell=True cannot execute .cmd files directly.
+_SHELL = sys.platform == "win32"
 
 # ---------------------------------------------------------------------------
 # Action → sf CLI mapping
@@ -175,6 +180,7 @@ def run_sf_command(action: str, args: dict[str, Any] | None = None) -> str:
             capture_output=True,
             text=True,
             timeout=600,
+            shell=_SHELL,
         )
     except FileNotFoundError:
         return "❌ sf CLI not found. Install: https://developer.salesforce.com/tools/salesforcecli"
