@@ -546,6 +546,18 @@ Built by furuCRM Inc. — https://www.furucrm.com
 
 
 def main() -> None:
+    # Pre-parse intercept: handle 'update' before argparse sees it.
+    # This lets older installed versions (that don't have 'update' registered)
+    # still self-upgrade via `python3 -m rtk_sf update`.
+    if len(sys.argv) >= 2 and sys.argv[1] == "update":
+        import argparse as _ap
+        _p = _ap.ArgumentParser(add_help=False)
+        _p.add_argument("--project-root", default=".")
+        _p.add_argument("update")
+        _known, _ = _p.parse_known_args(sys.argv[1:])
+        _ns = _ap.Namespace(project_root=_known.project_root, verbose=False)
+        sys.exit(cmd_update(_ns))
+
     parser = build_parser()
     args = parser.parse_args()
     _setup_logging(args.verbose)
