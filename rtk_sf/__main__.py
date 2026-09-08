@@ -128,6 +128,62 @@ Do NOT use `npx rtk-sf` — rtk-sf is a Python package, not npm.
         _success("CLAUDE.md created with rtk-sf tool instructions.")
 
 
+_OCR_CMD = "python3 -m rtk_sf.hooks.ocr_intercept"
+_COMPACT_CMD = "python3 -m rtk_sf.hooks.compact_prompt"
+
+
+def _patch_claude_settings(project_root: Path) -> None:
+    """Wire rtk-sf hooks into .claude/settings.json (merge, never overwrite).
+
+    Uses `python3 -m rtk_sf.hooks.*` so hooks always resolve to the currently
+    installed rtk-sf version — no path updates needed after pip upgrade.
+    """
+    import json as _json
+
+    settings_path = project_root / ".claude" / "settings.json"
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+
+    config: dict = {}
+    if settings_path.exists():
+        try:
+            config = _json.loads(settings_path.read_text(encoding="utf-8"))
+        except Exception:
+            config = {}
+
+    hooks = config.setdefault("hooks", {})
+
+    def _has_hook(event: str, cmd: str) -> bool:
+        for entry in hooks.get(event, []):
+            for h in entry.get("hooks", []):
+                if h.get("command", "") == cmd:
+                    return True
+        return False
+
+    changed = False
+
+    # PreToolUse[Read] → OCR intercept
+    if not _has_hook("PreToolUse", _OCR_CMD):
+        hooks.setdefault("PreToolUse", []).append({
+            "matcher": "Read",
+            "hooks": [{"type": "command", "command": _OCR_CMD}],
+        })
+        changed = True
+
+    # UserPromptSubmit → compact prompt
+    if not _has_hook("UserPromptSubmit", _COMPACT_CMD):
+        hooks.setdefault("UserPromptSubmit", []).append({
+            "matcher": "",
+            "hooks": [{"type": "command", "command": _COMPACT_CMD}],
+        })
+        changed = True
+
+    if changed:
+        settings_path.write_text(_json.dumps(config, indent=2), encoding="utf-8")
+        _success(".claude/settings.json updated with rtk-sf hooks (OCR intercept + prompt compactor).")
+    else:
+        _success(".claude/settings.json already has rtk-sf hooks. Skipping.")
+
+
 def _print_next_steps() -> None:
     python_cmd = "python3"
 
@@ -223,7 +279,10 @@ def cmd_setup(args: argparse.Namespace) -> int:
     # Step 3: patch CLAUDE.md
     _patch_claude_md(project_root)
 
-    # Step 4: next steps
+    # Step 4: wire hooks into .claude/settings.json
+    _patch_claude_settings(project_root)
+
+    # Step 5: next steps
     _print_next_steps()
 
     return 0 if counters["errors"] == 0 else 1
@@ -265,6 +324,66 @@ def cmd_index(args: argparse.Namespace) -> int:
         print("Run `rtk-sf ui` to generate the architecture map.")
 
     return 0 if counters["errors"] == 0 else 1
+
+
+# ---------------------------------------------------------------------------
+# Subcommand: update
+# ---------------------------------------------------------------------------
+
+
+def cmd_update(args: argparse.Namespace) -> int:
+    """Upgrade rtk-sf to latest main, then run install."""
+    import subprocess
+    from rtk_sf import __version__
+
+    _bold("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    _bold(f"  rtk-sf update  (current: {__version__})")
+    _bold("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print()
+
+    repo = "https://github.com/furuCRM-Inc/rtk-sf.git"
+    pkg_all = f"rtk-sf[all] @ git+{repo}@main"
+    pkg_core = f"git+{repo}@main"
+
+    # Step 1: ensure pip >= 22
+    _info("Upgrading pip...")
+    r = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--upgrade", "pip", "--quiet"],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        _warn(f"pip upgrade warning: {r.stderr.strip()}")
+
+    # Step 2: try rtk-sf[all], fall back to core if heavy deps fail to build
+    _info("Downloading latest rtk-sf from GitHub (with OCR + vector extras)...")
+    r = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--force-reinstall",
+         "--no-cache-dir", "--quiet", pkg_all],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        _warn("Full install failed (likely missing binary wheel for OCR deps).")
+        _warn("Falling back to core install (no OCR, no vector re-ranking)...")
+        r = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--force-reinstall",
+             "--no-cache-dir", "--quiet", pkg_core],
+            capture_output=True, text=True,
+        )
+        if r.returncode != 0:
+            print(r.stderr, file=sys.stderr)
+            print(f"pip install failed. Try manually:\n  pip install \"{pkg_all}\"",
+                  file=sys.stderr)
+            return 1
+        _warn("Core installed. To add OCR later: pip install paddleocr Pillow")
+
+    # Step 3: re-exec install with the freshly installed version
+    _info("Running install with new version...")
+    r = subprocess.run(
+        [sys.executable, "-m", "rtk_sf",
+         "--project-root", str(Path(args.project_root).resolve()),
+         "install"],
+    )
+    return r.returncode
 
 
 # ---------------------------------------------------------------------------
@@ -329,7 +448,9 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  rtk-sf index                        # Index ./force-app
+  rtk-sf install                      # First-time setup
+  rtk-sf update                       # Upgrade to latest version
+  rtk-sf index                        # Re-index ./force-app
   rtk-sf index --path ./src           # Index custom source path
   rtk-sf watch                        # Watch ./force-app for changes
   rtk-sf serve                        # Start MCP server (for Claude Code)
@@ -362,9 +483,16 @@ Built by furuCRM Inc. — https://www.furucrm.com
     # install (full setup)
     p_setup = subparsers.add_parser(
         "install",
-        help="Full setup: index project + patch CLAUDE.md + print MCP registration steps",
+        help="Full setup: index project + patch CLAUDE.md + wire hooks",
     )
     p_setup.set_defaults(func=cmd_setup)
+
+    # update
+    p_update = subparsers.add_parser(
+        "update",
+        help="Upgrade rtk-sf to latest version, then re-run install",
+    )
+    p_update.set_defaults(func=cmd_update)
 
     # index
     p_index = subparsers.add_parser("index", help="Index Salesforce metadata")
