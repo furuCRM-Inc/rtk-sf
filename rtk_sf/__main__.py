@@ -128,17 +128,26 @@ Do NOT use `npx rtk-sf` — rtk-sf is a Python package, not npm.
         _success("CLAUDE.md created with rtk-sf tool instructions.")
 
 
-_OCR_CMD = "python3 -m rtk_sf.hooks.ocr_intercept"
-_COMPACT_CMD = "python3 -m rtk_sf.hooks.compact_prompt"
+_OCR_MODULE = "rtk_sf.hooks.ocr_intercept"
+_COMPACT_MODULE = "rtk_sf.hooks.compact_prompt"
+
+
+def _make_hook_cmd(module: str) -> str:
+    """Build hook command using sys.executable — the Python that has rtk_sf installed."""
+    return f"{sys.executable} -m {module}"
 
 
 def _patch_claude_settings(project_root: Path) -> None:
     """Wire rtk-sf hooks into .claude/settings.json (merge, never overwrite).
 
-    Uses `python3 -m rtk_sf.hooks.*` so hooks always resolve to the currently
-    installed rtk-sf version — no path updates needed after pip upgrade.
+    Uses sys.executable so the hook always runs with the Python environment
+    that has rtk_sf installed — not the system python3 which may differ.
+    Re-running install updates the path if the Python executable changed.
     """
     import json as _json
+
+    ocr_cmd = _make_hook_cmd(_OCR_MODULE)
+    compact_cmd = _make_hook_cmd(_COMPACT_MODULE)
 
     settings_path = project_root / ".claude" / "settings.json"
     settings_path.parent.mkdir(parents=True, exist_ok=True)
@@ -152,28 +161,59 @@ def _patch_claude_settings(project_root: Path) -> None:
 
     hooks = config.setdefault("hooks", {})
 
-    def _has_hook(event: str, cmd: str) -> bool:
+    def _hook_key(module: str) -> str:
+        """Bare script name shared by all formats of an rtk_sf hook command."""
+        return module.split(".")[-1]  # e.g. "ocr_intercept"
+
+    def _find_and_dedupe(event: str, module: str, correct_cmd: str) -> tuple[dict | None, bool]:
+        """Find the rtk_sf hook entry for *module*, update its command, and
+        remove any duplicate outer entries.  Returns (hook_dict_or_None, changed).
+        """
+        key = _hook_key(module)
+        first_hook: dict | None = None
+        dirty = False
+
+        surviving_entries = []
         for entry in hooks.get(event, []):
-            for h in entry.get("hooks", []):
-                if h.get("command", "") == cmd:
-                    return True
-        return False
+            matches = [h for h in entry.get("hooks", []) if key in h.get("command", "")]
+            if not matches:
+                surviving_entries.append(entry)
+                continue
+            if first_hook is None:
+                # keep this entry; update its command if stale
+                h = matches[0]
+                if h.get("command") != correct_cmd:
+                    h["command"] = correct_cmd
+                    dirty = True
+                first_hook = h
+                surviving_entries.append(entry)
+            else:
+                dirty = True  # drop duplicate outer entry
+
+        if dirty or len(surviving_entries) != len(hooks.get(event, [])):
+            hooks[event] = surviving_entries
+            dirty = True
+        return first_hook, dirty
 
     changed = False
 
     # PreToolUse[Read] → OCR intercept
-    if not _has_hook("PreToolUse", _OCR_CMD):
+    existing_ocr, ocr_changed = _find_and_dedupe("PreToolUse", _OCR_MODULE, ocr_cmd)
+    changed |= ocr_changed
+    if existing_ocr is None:
         hooks.setdefault("PreToolUse", []).append({
             "matcher": "Read",
-            "hooks": [{"type": "command", "command": _OCR_CMD}],
+            "hooks": [{"type": "command", "command": ocr_cmd}],
         })
         changed = True
 
     # UserPromptSubmit → compact prompt
-    if not _has_hook("UserPromptSubmit", _COMPACT_CMD):
+    existing_compact, compact_changed = _find_and_dedupe("UserPromptSubmit", _COMPACT_MODULE, compact_cmd)
+    changed |= compact_changed
+    if existing_compact is None:
         hooks.setdefault("UserPromptSubmit", []).append({
             "matcher": "",
-            "hooks": [{"type": "command", "command": _COMPACT_CMD}],
+            "hooks": [{"type": "command", "command": compact_cmd}],
         })
         changed = True
 
