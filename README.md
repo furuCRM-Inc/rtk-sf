@@ -155,23 +155,21 @@ Run this inside your Salesforce project directory:
 python3 -m rtk_sf update
 ```
 
-That's it. One command — upgrades pip, reinstalls rtk-sf[all], updates CLAUDE.md and hooks.
+That's it — upgrades pip, reinstalls rtk-sf, updates CLAUDE.md, and wires hooks automatically.
 
-> **First time only:** if rtk-sf isn't installed yet, run the one-liner above first, then use `python3 -m rtk_sf update` for all future upgrades.
-
-This reinstalls the latest version and automatically upgrades your `CLAUDE.md` to the current tool list.
+> **First time only:** install rtk-sf first via the Quick Start above, then use `python3 -m rtk_sf update` for all future upgrades.
 
 ### What gets updated
 
 | Step | What happens |
 |---|---|
 | `pip install --upgrade pip` | Ensures pip ≥ 22 (required for PEP 508 VCS syntax) |
-| `pip install --force-reinstall` | Replaces the installed package with the latest |
+| `pip install --force-reinstall` | Pulls latest rtk-sf from GitHub (falls back to core if OCR deps fail to build) |
 | `python3 -m rtk_sf install` | Re-indexes any new/changed files |
-| | Upgrades `CLAUDE.md` (v0.3 → v0.5 or v0.4 → v0.5) |
-| | Prints MCP re-registration reminder if needed |
+| | Upgrades `CLAUDE.md` to latest tool list (all versions supported) |
+| | Wires OCR intercept + prompt compactor hooks into `.claude/settings.json` |
 
-> **Note:** Re-indexing is incremental — unchanged files are skipped automatically.
+> Re-indexing is incremental — unchanged files are skipped automatically.
 
 ---
 
