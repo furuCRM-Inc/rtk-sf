@@ -128,13 +128,17 @@ Do NOT use `npx rtk-sf` — rtk-sf is a Python package, not npm.
         _success("CLAUDE.md created with rtk-sf tool instructions.")
 
 
-def _patch_claude_settings(project_root: Path) -> None:
-    """Wire rtk-sf hooks into .claude/settings.json (merge, never overwrite)."""
-    import json as _json
+_OCR_CMD = "python3 -m rtk_sf.hooks.ocr_intercept"
+_COMPACT_CMD = "python3 -m rtk_sf.hooks.compact_prompt"
 
-    hooks_pkg = Path(__file__).parent / "hooks"
-    ocr_hook = str(hooks_pkg / "ocr_intercept.py")
-    compact_hook = str(hooks_pkg / "compact_prompt.py")
+
+def _patch_claude_settings(project_root: Path) -> None:
+    """Wire rtk-sf hooks into .claude/settings.json (merge, never overwrite).
+
+    Uses `python3 -m rtk_sf.hooks.*` so hooks always resolve to the currently
+    installed rtk-sf version — no path updates needed after pip upgrade.
+    """
+    import json as _json
 
     settings_path = project_root / ".claude" / "settings.json"
     settings_path.parent.mkdir(parents=True, exist_ok=True)
@@ -151,25 +155,25 @@ def _patch_claude_settings(project_root: Path) -> None:
     def _has_hook(event: str, cmd: str) -> bool:
         for entry in hooks.get(event, []):
             for h in entry.get("hooks", []):
-                if h.get("command", "").endswith(cmd):
+                if h.get("command", "") == cmd:
                     return True
         return False
 
     changed = False
 
     # PreToolUse[Read] → OCR intercept
-    if not _has_hook("PreToolUse", "ocr_intercept.py"):
+    if not _has_hook("PreToolUse", _OCR_CMD):
         hooks.setdefault("PreToolUse", []).append({
             "matcher": "Read",
-            "hooks": [{"type": "command", "command": f"python3 {ocr_hook}"}],
+            "hooks": [{"type": "command", "command": _OCR_CMD}],
         })
         changed = True
 
     # UserPromptSubmit → compact prompt
-    if not _has_hook("UserPromptSubmit", "compact_prompt.py"):
+    if not _has_hook("UserPromptSubmit", _COMPACT_CMD):
         hooks.setdefault("UserPromptSubmit", []).append({
             "matcher": "",
-            "hooks": [{"type": "command", "command": f"python3 {compact_hook}"}],
+            "hooks": [{"type": "command", "command": _COMPACT_CMD}],
         })
         changed = True
 
