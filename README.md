@@ -152,10 +152,12 @@ Your AI agent now has instant, token-efficient access to your entire Salesforce 
 Run this inside your Salesforce project directory:
 
 ```bash
-python3 -m pip install --upgrade pip && python3 -m pip install --force-reinstall --no-cache-dir "rtk-sf[all] @ git+https://github.com/furuCRM-Inc/rtk-sf.git@main" && python3 -m rtk_sf install
+python3 -m rtk_sf update
 ```
 
-> **Requires pip ≥ 22.** The first line upgrades pip if needed — safe to run even if already up to date.
+That's it. One command — upgrades pip, reinstalls rtk-sf[all], updates CLAUDE.md and hooks.
+
+> **First time only:** if rtk-sf isn't installed yet, run the one-liner above first, then use `python3 -m rtk_sf update` for all future upgrades.
 
 This reinstalls the latest version and automatically upgrades your `CLAUDE.md` to the current tool list.
 

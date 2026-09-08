@@ -327,6 +327,66 @@ def cmd_index(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Subcommand: update
+# ---------------------------------------------------------------------------
+
+
+def cmd_update(args: argparse.Namespace) -> int:
+    """Upgrade rtk-sf to latest main, then run install."""
+    import subprocess
+    from rtk_sf import __version__
+
+    _bold("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    _bold(f"  rtk-sf update  (current: {__version__})")
+    _bold("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print()
+
+    repo = "https://github.com/furuCRM-Inc/rtk-sf.git"
+    pkg_all = f"rtk-sf[all] @ git+{repo}@main"
+    pkg_core = f"git+{repo}@main"
+
+    # Step 1: ensure pip >= 22
+    _info("Upgrading pip...")
+    r = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--upgrade", "pip", "--quiet"],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        _warn(f"pip upgrade warning: {r.stderr.strip()}")
+
+    # Step 2: try rtk-sf[all], fall back to core if heavy deps fail to build
+    _info("Downloading latest rtk-sf from GitHub (with OCR + vector extras)...")
+    r = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--force-reinstall",
+         "--no-cache-dir", "--quiet", pkg_all],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        _warn("Full install failed (likely missing binary wheel for OCR deps).")
+        _warn("Falling back to core install (no OCR, no vector re-ranking)...")
+        r = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--force-reinstall",
+             "--no-cache-dir", "--quiet", pkg_core],
+            capture_output=True, text=True,
+        )
+        if r.returncode != 0:
+            print(r.stderr, file=sys.stderr)
+            print(f"pip install failed. Try manually:\n  pip install \"{pkg_all}\"",
+                  file=sys.stderr)
+            return 1
+        _warn("Core installed. To add OCR later: pip install paddleocr Pillow")
+
+    # Step 3: re-exec install with the freshly installed version
+    _info("Running install with new version...")
+    r = subprocess.run(
+        [sys.executable, "-m", "rtk_sf",
+         "--project-root", str(Path(args.project_root).resolve()),
+         "install"],
+    )
+    return r.returncode
+
+
+# ---------------------------------------------------------------------------
 # Subcommand: watch
 # ---------------------------------------------------------------------------
 
@@ -388,7 +448,9 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  rtk-sf index                        # Index ./force-app
+  rtk-sf install                      # First-time setup
+  rtk-sf update                       # Upgrade to latest version
+  rtk-sf index                        # Re-index ./force-app
   rtk-sf index --path ./src           # Index custom source path
   rtk-sf watch                        # Watch ./force-app for changes
   rtk-sf serve                        # Start MCP server (for Claude Code)
@@ -421,9 +483,16 @@ Built by furuCRM Inc. — https://www.furucrm.com
     # install (full setup)
     p_setup = subparsers.add_parser(
         "install",
-        help="Full setup: index project + patch CLAUDE.md + print MCP registration steps",
+        help="Full setup: index project + patch CLAUDE.md + wire hooks",
     )
     p_setup.set_defaults(func=cmd_setup)
+
+    # update
+    p_update = subparsers.add_parser(
+        "update",
+        help="Upgrade rtk-sf to latest version, then re-run install",
+    )
+    p_update.set_defaults(func=cmd_update)
 
     # index
     p_index = subparsers.add_parser("index", help="Index Salesforce metadata")
