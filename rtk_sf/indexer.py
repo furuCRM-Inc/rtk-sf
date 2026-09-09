@@ -633,16 +633,44 @@ def _parse_lwc_bundle(bundle_dir: Path) -> dict[str, Any]:
 def _parse_aura_bundle(bundle_dir: Path) -> dict[str, Any]:
     """Parse an Aura Definition Bundle directory."""
     name = bundle_dir.name
-    result: dict[str, Any] = {"name": name, "attributes": []}
+    result: dict[str, Any] = {
+        "name": name,
+        "attributes": [],
+        "controllerMethods": [],
+        "componentRefs": [],
+    }
 
     for f in bundle_dir.iterdir():
         if f.suffix in {".cmp", ".app"}:
             source = f.read_text(encoding="utf-8", errors="replace")
-            # Extract <aura:attribute> name attributes
-            attrs = re.findall(r'<aura:attribute\s[^>]*name="([^"]+)"', source)
-            result["attributes"] = attrs
             result["bundleType"] = "Application" if f.suffix == ".app" else "Component"
-            break
+
+            # Extract <aura:attribute> with name, type, and description
+            attrs = []
+            for tag in re.findall(r'<aura:attribute\s([^/]*?)/?>', source, re.DOTALL):
+                attr: dict[str, str] = {}
+                m_name = re.search(r'name="([^"]+)"', tag)
+                m_type = re.search(r'type="([^"]+)"', tag)
+                m_desc = re.search(r'description="([^"]+)"', tag)
+                if m_name:
+                    attr["name"] = m_name.group(1)
+                if m_type:
+                    attr["type"] = m_type.group(1)
+                if m_desc:
+                    attr["description"] = m_desc.group(1)
+                if attr.get("name"):
+                    attrs.append(attr)
+            result["attributes"] = attrs
+
+            # Extract child component references: <c:Foo>, <lightning:foo>, <ui:foo>
+            refs = re.findall(r"<(c:[A-Za-z]\w*|lightning:[A-Za-z]\w*|ui:[A-Za-z]\w*)\b", source)
+            result["componentRefs"] = list(dict.fromkeys(refs))
+
+        elif f.name.endswith("Controller.js"):
+            js = f.read_text(encoding="utf-8", errors="replace")
+            # Aura controllers are ({  handlerName : function(...) { ... } })
+            methods = re.findall(r'(\w+)\s*:\s*function\s*\(', js)
+            result["controllerMethods"] = list(dict.fromkeys(methods))
 
     return result
 
@@ -761,6 +789,10 @@ def _build_aura_spec(parsed: dict[str, Any], bundle_dir: Path) -> str:
     }
     if parsed.get("attributes"):
         spec["attributes"] = parsed["attributes"]
+    if parsed.get("controllerMethods"):
+        spec["controllerMethods"] = parsed["controllerMethods"]
+    if parsed.get("componentRefs"):
+        spec["componentRefs"] = parsed["componentRefs"]
     return yaml.dump(spec, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
 
@@ -1455,6 +1487,7 @@ class SalesforceIndexer:
             self._components[component_name] = {
                 "type": "AuraDefinitionBundle",
                 "file": str(bundle_dir),
+                "refs": parsed.get("componentRefs", []),
             }
             for f in bundle_dir.iterdir():
                 if f.is_file():
