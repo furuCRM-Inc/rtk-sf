@@ -25,6 +25,7 @@ from pathlib import Path
 class Track(str, Enum):
     SALESFORCE = "salesforce"
     PYTHON = "python"
+    TYPESCRIPT = "typescript"
     UNKNOWN = "unknown"
 
 
@@ -46,6 +47,12 @@ _PY_CLI_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
+_TS_EXTENSIONS = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}
+_TS_CLI_KEYWORDS = re.compile(
+    r"\b(jest|vitest|playwright|npm\s+(?:test|run)|npx|tsc|eslint|prettier)\b",
+    re.IGNORECASE,
+)
+
 
 def route_file(file_path: str | Path) -> Track:
     """Return the Track for a given file path based on its extension."""
@@ -59,6 +66,8 @@ def route_file(file_path: str | Path) -> Track:
         return Track.SALESFORCE
     if suffix in _PY_EXTENSIONS:
         return Track.PYTHON
+    if suffix in _TS_EXTENSIONS:
+        return Track.TYPESCRIPT
 
     return Track.UNKNOWN
 
@@ -69,6 +78,8 @@ def route_command(command: str) -> Track:
         return Track.SALESFORCE
     if _PY_CLI_KEYWORDS.search(command):
         return Track.PYTHON
+    if _TS_CLI_KEYWORDS.search(command):
+        return Track.TYPESCRIPT
     return Track.UNKNOWN
 
 
