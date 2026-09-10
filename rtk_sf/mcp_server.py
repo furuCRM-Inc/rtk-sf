@@ -412,6 +412,62 @@ _TOOLS: list[dict[str, Any]] = [
             "required": [],
         },
     },
+    # ── Kotlin track tools (v0.7.0) ────────────────────────────────────────
+    {
+        "name": "get_kotlin_skeleton",
+        "description": (
+            "Return a compressed structural skeleton of a Kotlin (.kt/.kts) file. "
+            "Shows package, imports, interface/enum bodies (full), data class headers, "
+            "class/object signatures, constructor bodies, and fun signatures — "
+            "all implementation bodies replaced with { /* logic hidden */ }. "
+            "Use instead of reading the raw .kt file; saves ~90% of tokens."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Absolute or relative path to the .kt or .kts file.",
+                },
+                "focus_names": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Function/method names whose full bodies should be shown.",
+                },
+            },
+            "required": ["file_path"],
+        },
+    },
+    {
+        "name": "run_gradle",
+        "description": (
+            "Run a Gradle task (build, test, assemble, etc.) and return a compact summary. "
+            "On success: single-line confirmation with test count. "
+            "On failure: Kotlin compiler errors (file:line:col + message) and "
+            "JUnit/Kotest assertion mismatches only — all JVM framework stack frames stripped. "
+            "Reduces a 600-line Gradle log to ~8 lines."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task": {
+                    "type": "string",
+                    "description": "Gradle task to run, e.g. 'test', 'build', 'assemble' (default 'build').",
+                    "default": "build",
+                },
+                "project_dir": {
+                    "type": "string",
+                    "description": "Directory containing gradlew (default: current directory).",
+                },
+                "extra_args": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Extra Gradle flags, e.g. ['--tests', 'com.example.FooTest', '--info'].",
+                },
+            },
+            "required": [],
+        },
+    },
     # ── Python track tools (v0.5.0) ────────────────────────────────────────
     {
         "name": "get_python_skeleton",
@@ -631,6 +687,10 @@ class MCPServer:
                 result = self._tool_get_roi_stats()
             elif tool_name == "extract_image_text":
                 result = self._tool_extract_image_text(arguments)
+            elif tool_name == "get_kotlin_skeleton":
+                result = self._tool_get_kotlin_skeleton(arguments)
+            elif tool_name == "run_gradle":
+                result = self._tool_run_gradle(arguments)
             elif tool_name == "get_ts_skeleton":
                 result = self._tool_get_ts_skeleton(arguments)
             elif tool_name == "run_js_tests":
@@ -905,6 +965,27 @@ class MCPServer:
             lines.append("")
 
         return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # Kotlin track tools
+    # ------------------------------------------------------------------
+
+    def _tool_get_kotlin_skeleton(self, args: dict) -> str:
+        file_path = args.get("file_path", "").strip()
+        if not file_path:
+            return "Error: file_path is required."
+        focus_names = args.get("focus_names") or None
+
+        from rtk_sf.kotlin.kt_skeletonizer import skeletonize_file
+        return skeletonize_file(file_path, focus_names)
+
+    def _tool_run_gradle(self, args: dict) -> str:
+        task = args.get("task", "build").strip() or "build"
+        project_dir = args.get("project_dir") or None
+        extra_args = args.get("extra_args") or []
+
+        from rtk_sf.kotlin.gradle_masker import run_build
+        return run_build(task, project_dir, extra_args)
 
     # ------------------------------------------------------------------
     # TypeScript track tools
