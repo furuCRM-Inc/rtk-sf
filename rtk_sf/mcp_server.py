@@ -412,6 +412,69 @@ _TOOLS: list[dict[str, Any]] = [
             "required": [],
         },
     },
+    # ── Java track tools (v0.8.0) ──────────────────────────────────────────
+    {
+        "name": "get_java_skeleton",
+        "description": (
+            "Return a compressed structural skeleton of a Java file. "
+            "Shows package, imports, interface/enum bodies (full), class/record signatures, "
+            "field variables, method signatures — all implementation bodies replaced with "
+            "{ /* logic hidden */ }. Standard getters/setters marked as { /* boilerplate */ }. "
+            "Use instead of reading the raw .java file; saves ~90% of tokens."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Absolute or relative path to the .java file.",
+                },
+                "focus_names": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Method names whose full bodies should be shown.",
+                },
+            },
+            "required": ["file_path"],
+        },
+    },
+    {
+        "name": "run_java_build",
+        "description": (
+            "Run a Maven (mvn) or Gradle (./gradlew) build task and return a compact summary. "
+            "Auto-detects the build tool from pom.xml or gradlew in the project directory. "
+            "On success: single-line confirmation with test count. "
+            "On failure: Java compiler errors (Filename.java:[line,col] error: message) and "
+            "JUnit/TestNG assertion failures only — Spring/Hibernate/JVM framework frames stripped. "
+            "Reduces a 600-line Maven test log to ~10 lines."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "tool": {
+                    "type": "string",
+                    "enum": ["auto", "mvn", "gradle"],
+                    "description": "Build tool to use ('auto' detects from project files, default 'auto').",
+                    "default": "auto",
+                },
+                "task": {
+                    "type": "string",
+                    "description": "Maven goal or Gradle task, e.g. 'test', 'package', 'verify' (default 'test').",
+                    "default": "test",
+                },
+                "project_dir": {
+                    "type": "string",
+                    "description": "Directory containing pom.xml or gradlew (default: current directory).",
+                },
+                "extra_args": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Extra flags, e.g. ['-Dtest=OrderServiceTest', '--info'].",
+                },
+            },
+            "required": [],
+        },
+    },
     # ── Kotlin track tools (v0.7.0) ────────────────────────────────────────
     {
         "name": "get_kotlin_skeleton",
@@ -687,6 +750,10 @@ class MCPServer:
                 result = self._tool_get_roi_stats()
             elif tool_name == "extract_image_text":
                 result = self._tool_extract_image_text(arguments)
+            elif tool_name == "get_java_skeleton":
+                result = self._tool_get_java_skeleton(arguments)
+            elif tool_name == "run_java_build":
+                result = self._tool_run_java_build(arguments)
             elif tool_name == "get_kotlin_skeleton":
                 result = self._tool_get_kotlin_skeleton(arguments)
             elif tool_name == "run_gradle":
@@ -965,6 +1032,28 @@ class MCPServer:
             lines.append("")
 
         return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # Java track tools
+    # ------------------------------------------------------------------
+
+    def _tool_get_java_skeleton(self, args: dict) -> str:
+        file_path = args.get("file_path", "").strip()
+        if not file_path:
+            return "Error: file_path is required."
+        focus_names = args.get("focus_names") or None
+
+        from rtk_sf.java.java_skeletonizer import skeletonize_file
+        return skeletonize_file(file_path, focus_names)
+
+    def _tool_run_java_build(self, args: dict) -> str:
+        tool = args.get("tool", "auto").strip() or "auto"
+        task = args.get("task", "test").strip() or "test"
+        project_dir = args.get("project_dir") or None
+        extra_args = args.get("extra_args") or []
+
+        from rtk_sf.java.build_masker import run_build
+        return run_build(tool, task, project_dir, extra_args)
 
     # ------------------------------------------------------------------
     # Kotlin track tools

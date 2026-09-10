@@ -1,16 +1,30 @@
 # rtk-sf
 
-**Zero-Token Knowledge & Visual Live-Mapping Layer for Salesforce AI Agents**
+**Multi-Language Token Reduction Framework for Enterprise AI Agents**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.4.1-brightgreen)](https://github.com/furuCRM-Inc/rtk-sf/releases)
+[![Version](https://img.shields.io/badge/version-0.8.0-brightgreen)](https://github.com/furuCRM-Inc/rtk-sf/releases)
 [![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue)](https://python.org)
 [![MCP Compatible](https://img.shields.io/badge/MCP-Compatible-green)](https://modelcontextprotocol.io)
 [![furuCRM](https://img.shields.io/badge/by-furuCRM%20Inc.-0066cc)](https://www.furucrm.com)
 
-> **Stop wasting tokens on raw file reads. Give your AI agent a pre-indexed knowledge layer instead.**
+> **Stop wasting tokens on raw file reads. Give your AI agent a pre-indexed, multi-language knowledge layer instead.**
 
-rtk-sf indexes your entire Salesforce DX project — Apex classes, custom objects, fields, and Flows — into compressed YAML specs served via MCP. Claude Code can query exact component knowledge in **~300 tokens** instead of reading the full source file (~4,000 tokens). **That's a 92% reduction per lookup.**
+rtk-sf started as a Salesforce token-reduction tool and has grown into a **full multi-language framework**. It indexes your codebase, compresses class structure into structural skeletons, and serves everything via MCP stdio — so Claude Code reads 150 tokens instead of 15,000.
+
+**v0.8.0** adds Java support alongside Python, TypeScript, and Kotlin — covering the full enterprise stack.
+
+---
+
+## Language Support
+
+| Language | Extensions | MCP Tools | Skeleton savings | Build/Test masker |
+|---|---|---|---|---|
+| **Salesforce (Apex)** | `.cls`, `.trigger`, `.flow` | 14 tools | 85–92% | `sf_command` |
+| **Java** | `.java` | `get_java_skeleton`, `run_java_build` | 80–90% | Maven + Gradle |
+| **Kotlin** | `.kt`, `.kts` | `get_kotlin_skeleton`, `run_gradle` | 75–88% | Gradle |
+| **TypeScript / JS** | `.ts`, `.tsx`, `.js`, `.jsx` | `get_ts_skeleton`, `run_js_tests` | 70–85% | Jest / Vitest |
+| **Python** | `.py` | `get_python_skeleton`, `run_python_tests` | 65–80% | pytest |
 
 ---
 
@@ -19,17 +33,257 @@ rtk-sf indexes your entire Salesforce DX project — Apex classes, custom object
 ```
 ❌  WITHOUT rtk-sf                      ✅  WITH rtk-sf
 ─────────────────────────────────────   ─────────────────────────────────────
-Claude: "Show me AccountService"        Claude: "Show me AccountService"
-  → reads AccountService.cls            → calls query_compressed_spec()
-  → reads AccountService.cls-meta.xml  → returns YAML spec instantly
-  → reads related trigger files
+Claude: "Show me OrderService.java"     Claude: "Show me OrderService.java"
+  → reads OrderService.java (800 lines)  → calls get_java_skeleton()
+  → reads related entity classes         → returns 80-line skeleton instantly
+  → reads repository interfaces
   → reads test class for context
-                                        Tokens consumed:  ~300
-Tokens consumed:  ~15,000               Time:             <0.1 s
-Time:             ~8 s                  Cost (@$3/1M):    $0.0009
-Cost (@$3/1M):    $0.045
-                                        Savings per lookup: 98%
+                                        Tokens consumed:  ~400
+Tokens consumed:  ~12,000               Time:             <0.1 s
+Cost (@$3/1M):    $0.036                Cost (@$3/1M):    $0.0012
+
+                                        Savings:  97%
 ```
+
+---
+
+## Quick Start
+
+```bash
+# Install (Salesforce + all language tracks)
+pip install "rtk-sf[all] @ git+https://github.com/furuCRM-Inc/rtk-sf.git"
+
+# Or from PyPI when available
+pip install rtk-sf
+
+# Salesforce: index your project
+python3 -m rtk_sf index
+
+# Start MCP server
+python3 -m rtk_sf serve
+```
+
+Add to your Claude Code MCP config (`~/.claude.json` or project `.claude.json`):
+
+```json
+{
+  "mcpServers": {
+    "rtk-sf": {
+      "command": "python3",
+      "args": ["-m", "rtk_sf", "serve"],
+      "cwd": "/path/to/your/project"
+    }
+  }
+}
+```
+
+---
+
+## How Each Language Track Works
+
+### Java — Structural Skeleton
+
+For a 800-line Spring Boot `OrderService.java`, `get_java_skeleton` returns:
+
+```java
+// Java skeleton: OrderService.java
+// Tokens: ~420 (vs ~2,100 raw, 80% saved)
+
+package com.example.service;
+
+import com.example.model.Order;
+import com.example.repository.OrderRepository;
+import org.springframework.stereotype.Service;
+
+@Service
+public class OrderService {
+  private final OrderRepository repository;
+
+  public OrderService(OrderRepository repository) {
+    this.repository = repository;
+  }
+
+  public Order findById(String id) { /* logic hidden */ }
+  public List<Order> findAll() { /* boilerplate */ }
+  public Order save(Order order) { /* logic hidden */ }
+  public void delete(String id) { /* logic hidden */ }
+  public String getId() { /* boilerplate */ }
+  public void setId(String id) { /* boilerplate */ }
+}
+```
+
+Getter/setter boilerplate is automatically detected and annotated `/* boilerplate */`. Real logic shows `/* logic hidden */`. Constructors are always shown in full.
+
+### Kotlin — Structural Skeleton
+
+For a Kotlin data class + service:
+
+```kotlin
+// Kotlin skeleton: OrderService.kt
+// Tokens: ~180 (vs ~900 raw, 80% saved)
+
+package com.example
+
+data class Order(
+  val id: String,
+  val customerId: String,
+  val items: List<OrderItem>,
+  val status: OrderStatus
+)
+
+class OrderService(private val db: MutableMap<String, Order> = mutableMapOf()) {
+  fun save(order: Order) { /* logic hidden */ }
+  fun findById(id: String): Order { /* logic hidden */ }
+  fun findAll(): List<Order> { /* logic hidden */ }
+  fun delete(id: String) { /* logic hidden */ }
+
+  companion object {
+    fun create(): OrderService { /* logic hidden */ }
+  }
+}
+```
+
+Expression-body functions (`fun f() = expr`) are detected and collapsed. Data class constructor parameters are always shown in full.
+
+### TypeScript — Structural Skeleton
+
+```typescript
+// TypeScript skeleton: PaymentService.ts
+// Tokens: ~210 (vs ~1,400 raw, 85% saved)
+
+import { Injectable } from '@nestjs/common';
+import { Order } from './order.model';
+
+@Injectable()
+export class PaymentService {
+  constructor(private readonly stripe: StripeClient) {}
+
+  async charge(order: Order, currency: string): Promise<PaymentResult> { /* logic hidden */ }
+  async refund(paymentId: string): Promise<void> { /* logic hidden */ }
+  private validateCurrency(currency: string): boolean { /* logic hidden */ }
+}
+```
+
+Arrow functions, decorators, and JSDoc are preserved in the skeleton header.
+
+### Python — Structural Skeleton
+
+```python
+# Python skeleton: order_service.py
+# Tokens: ~160 (vs ~800 raw, 80% saved)
+
+from dataclasses import dataclass
+from typing import List, Optional
+
+@dataclass
+class Order:
+    id: str
+    customer_id: str
+    items: List[str]
+    status: str
+
+class OrderService:
+    def __init__(self, db): ...
+    def save(self, order: Order) -> Order: ...
+    def find_by_id(self, order_id: str) -> Optional[Order]: ...
+    def find_all(self) -> List[Order]: ...
+    def delete(self, order_id: str) -> bool: ...
+```
+
+---
+
+## `focus_names` — Expose Any Method Body On Demand
+
+Every skeleton tool accepts `focus_names` (or `focus_methods`) to show a specific method's full body while keeping the rest collapsed:
+
+```
+get_java_skeleton(
+  file_path="/src/OrderService.java",
+  focus_names=["processPayment"]
+)
+```
+
+```java
+public class OrderService {
+  public Order findById(String id) { /* logic hidden */ }
+
+  // ← full body exposed because it's in focus_names
+  public PaymentResult processPayment(Order order, String currency) {
+    validateCurrency(currency);
+    Payment payment = paymentGateway.charge(order.getTotal(), currency);
+    order.setStatus(OrderStatus.PAID);
+    return repository.save(payment);
+  }
+
+  public void delete(String id) { /* logic hidden */ }
+}
+```
+
+---
+
+## Language Router
+
+rtk-sf automatically routes to the correct track based on file extension or CLI keyword:
+
+| Extension / keyword | Track |
+|---|---|
+| `.cls`, `.trigger`, `.flow`, `sf `, `sfdx` | Salesforce |
+| `.java`, `mvn`, `maven`, `javac` | Java |
+| `.kt`, `.kts`, `gradle`, `gradlew` | Kotlin |
+| `.ts`, `.tsx`, `.js`, `.jsx`, `npm`, `jest` | TypeScript |
+| `.py`, `python`, `pytest`, `pip` | Python |
+
+---
+
+## MCP Tools Reference (23 tools)
+
+### Salesforce (14 tools)
+
+| Tool | Description |
+|---|---|
+| `query_compressed_spec` | Return compressed YAML spec for an Apex class or custom object |
+| `search_codebase` | Keyword search across all indexed Salesforce components |
+| `get_relations` | Blast-radius graph: what references this component |
+| `list_components` | List all components of a given type (ApexClass, CustomObject, Flow, …) |
+| `get_class_skeleton` | Apex class structural skeleton with optional focus methods |
+| `sf_command` | Deploy, retrieve, run tests, or execute anonymous Apex |
+| `get_object_schema` | Describe all fields on a Salesforce object |
+| `soql_query` | Run a SOQL query and return sample records |
+| `compact_prompt` | NLP-compress a user prompt before sending to the LLM |
+| `validate_apex` | Static validation for Apex code snippets |
+| `validate_soql` | Static validation for SOQL queries |
+| `get_roi_stats` | Token/cost savings report for this session |
+| `extract_image_text` | OCR text extraction from a screenshot or image |
+| `annotate_component` | Write business-logic annotations back to the index |
+
+### Java (2 tools)
+
+| Tool | Description |
+|---|---|
+| `get_java_skeleton` | Java class skeleton — collapses method bodies, detects getters/setters, shows constructors in full |
+| `run_java_build` | Run Maven or Gradle build/test and return compacted output (strips JVM framework frames) |
+
+### Kotlin (2 tools)
+
+| Tool | Description |
+|---|---|
+| `get_kotlin_skeleton` | Kotlin class skeleton — handles data classes, companion objects, expression-body functions |
+| `run_gradle` | Run Gradle task and return compacted output |
+
+### TypeScript / JavaScript (2 tools)
+
+| Tool | Description |
+|---|---|
+| `get_ts_skeleton` | TypeScript/JS structural skeleton — handles arrow functions, decorators, JSDoc |
+| `run_js_tests` | Run Jest or Vitest and return compacted output (strips node_modules frames) |
+
+### Python / Utility (3 tools)
+
+| Tool | Description |
+|---|---|
+| `get_python_skeleton` | Python structural skeleton using AST — handles dataclasses, type hints, decorators |
+| `run_python_tests` | Run pytest and return compacted output |
+| `read_data_file` | Read CSV, JSON, or YAML data files with row limits |
 
 ---
 
@@ -48,586 +302,120 @@ Cost (@$3/1M):    $0.045
 
 *Assumptions: Claude Sonnet 4 @ $3/1M input tokens · 80 component lookups per session · 15,000 tokens without rtk-sf vs. 450 tokens with.*
 
-> Full benchmark methodology and enterprise-scale projections: [docs/roi.md](docs/roi.md)
-
----
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     Salesforce DX Project                    │
-│  force-app/main/default/                                     │
-│    classes/AccountService.cls       ← raw: ~4,000 tokens    │
-│    objects/Account__c.object-meta.xml                        │
-│    flows/OnboardingFlow.flow-meta.xml                        │
-└──────────────────┬──────────────────────────────────────────┘
-                   │  rtk-sf index
-                   ▼
-┌─────────────────────────────────────────────────────────────┐
-│                      .rtk-sf/                                │
-│  registry.json   ← mtime differential tracker               │
-│  db.sqlite       ← SQLite FTS5 full-text search             │
-│  relations.json  ← nodes + edges graph                      │
-│  specs/                                                      │
-│    AccountService.yaml  ← compressed: ~300 tokens           │
-│    Account__c.yaml                                           │
-│    OnboardingFlow.yaml                                       │
-└──────────────────┬──────────────────────────────────────────┘
-                   │  MCP stdio JSON-RPC
-                   ▼
-┌─────────────────────────────────────────────────────────────┐
-│                        AI Agent (Claude Code)                │
-│                                                              │
-│  query_compressed_spec("AccountService")  → 300-token YAML  │
-│                                             + annotations    │
-│  search_codebase("payment processing")   → top 5 matches    │
-│  search_codebase("承認フロー")             → Japanese OK      │
-│  get_relations("AccountService")         → callers + deps   │
-│  list_components(type="ApexClass")       → all Apex classes  │
-│  annotate_component("Account__c", ...)   → write knowledge  │
-└─────────────────────────────────────────────────────────────┘
-                   │  optional
-                   ▼
-┌─────────────────────────────────────────────────────────────┐
-│            dist/architecture_map.html  (Cytoscape.js SPA)   │
-│                                                              │
-│  ● Interactive graph of all components                       │
-│  ● Click node → YAML spec in sidebar                        │
-│  ● Path highlighting: upstream (amber) / downstream (red)   │
-│  ● Full-text search filter                                   │
-│  ● Self-contained HTML — no web server needed               │
-└─────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Quick Start
-
-### Option A — One-liner (recommended)
-
-```bash
-curl -sSL https://raw.githubusercontent.com/furuCRM-Inc/rtk-sf/main/scripts/install.sh | bash
-```
-
-This checks Python, installs rtk-sf, indexes your project, and prints your next steps — all in one command.
-
-### Option B — Manual
-
-**Step 1 — Install**
-
-```bash
-pip install "rtk-sf[all] @ git+https://github.com/furuCRM-Inc/rtk-sf.git@main"
-```
-
-**Step 2 — Full setup (index + CLAUDE.md + next steps)**
-
-```bash
-cd your-salesforce-project
-python3 -m rtk_sf install
-```
-
-This indexes your project, patches `CLAUDE.md` with the 14-tool table, and prints the MCP registration command.
-
-**Step 3 — Register with Claude Code**
-
-```bash
-claude mcp add rtk-sf -- python3 -m rtk_sf serve
-```
-
-**Step 4 — (Optional) Generate the visual architecture map**
-
-```bash
-python3 -m rtk_sf ui && open dist/architecture_map.html
-```
-
-Your AI agent now has instant, token-efficient access to your entire Salesforce codebase.
-
----
-
-## Upgrading
-
-### From any previous version
-
-Run this inside your Salesforce project directory:
-
-```bash
-python3 -m rtk_sf update
-```
-
-That's it — upgrades pip, reinstalls rtk-sf, updates CLAUDE.md, and wires hooks automatically.
-
-> **First time only:** install rtk-sf first via the Quick Start above, then use `python3 -m rtk_sf update` for all future upgrades.
-
-### What gets updated
-
-| Step | What happens |
-|---|---|
-| `pip install --upgrade pip` | Ensures pip ≥ 22 (required for PEP 508 VCS syntax) |
-| `pip install --force-reinstall` | Pulls latest rtk-sf from GitHub (falls back to core if OCR deps fail to build) |
-| `python3 -m rtk_sf install` | Re-indexes any new/changed files |
-| | Upgrades `CLAUDE.md` to latest tool list (all versions supported) |
-| | Wires OCR intercept + prompt compactor hooks into `.claude/settings.json` |
-
-> Re-indexing is incremental — unchanged files are skipped automatically.
-
-### Troubleshooting: `invalid choice: 'update'`
-
-If you see this error:
-
-```
-rtk-sf: error: argument COMMAND: invalid choice: 'update'
-```
-
-Your installed version predates the `update` command. Run this once to bootstrap:
-
-```bash
-python3 -m pip install --force-reinstall --no-cache-dir "git+https://github.com/furuCRM-Inc/rtk-sf.git@main" && python3 -m rtk_sf update
-```
-
-After this, `python3 -m rtk_sf update` works for all future upgrades.
-
----
-
-## MCP Integration
-
-### Claude Code
-
-```bash
-# Register the MCP server (run once per project)
-claude mcp add rtk-sf -- python3 -m rtk_sf serve
-
-# Verify
-claude mcp list
-```
-
-Once registered, Claude Code can call these tools directly:
-
-```
-Claude: I need to understand AccountService.
-→ [calls query_compressed_spec("AccountService")]
-→ Returns 300-token YAML instead of reading the 4,000-token .cls file
-
-Claude: Find all payment-related code.
-→ [calls search_codebase("payment processing", limit=5)]
-→ Returns ranked list of matching components with snippets
-
-Claude: What calls AccountService?
-→ [calls get_relations("AccountService")]
-→ Upstream: [OrderTriggerHandler, QuoteController]
-   Downstream: [PaymentGateway, EmailService]
-```
-
-### Any MCP-compatible client
-
-```bash
-# Start the server manually
-python3 -m rtk_sf serve
-
-# The server reads JSON-RPC 2.0 from stdin, writes to stdout
-# Protocol: MCP 2024-11-05
-```
-
----
-
-## Visual Architecture Map
-
-Generate an interactive HTML graph of your entire component landscape:
-
-```bash
-rtk-sf ui
-# Opens: dist/architecture_map.html
-open dist/architecture_map.html
-```
-
-**Features:**
-- Interactive graph powered by Cytoscape.js (CoSE layout)
-- Click any node to view its compressed YAML spec in the sidebar
-- Path highlighting: selected (amber), upstream callers (light amber), downstream deps (red)
-- Search box to filter/dim non-matching nodes
-- Re-layout button for large graphs
-- Keyboard shortcuts: `Esc` clear, `Ctrl+K` / `F` focus search
-- Self-contained single HTML file — share with your team, open in any browser
-- Dark theme with furuCRM branding
-
-> **Screenshot:** [docs/architecture_map_demo.png](docs/architecture_map_demo.png)
-
----
-
-## How It Works
-
-### Differential Indexing
-
-rtk-sf tracks file modification times in `.rtk-sf/registry.json`. On subsequent `rtk-sf index` runs, only changed files are re-parsed — making incremental indexing fast even on large orgs.
-
-```
-First run  (84 files): ~2.3 seconds
-Re-index (3 changed) : ~0.1 seconds
-```
-
-### Hybrid Search
-
-Keyword search uses SQLite's built-in **FTS5** full-text search — no external dependencies, no network calls. When `numpy` is installed (included in the `[all]` bundle), results are re-ranked using bag-of-words cosine similarity for improved relevance.
-
-**Japanese search is fully supported.** rtk-sf uses the FTS5 `trigram` tokenizer combined with a LIKE fallback for 1–2 character terms, so Japanese metadata labels, picklist values, and annotation text are all searchable:
-
-```bash
-# All of these work — including short Japanese terms
-search_codebase("承認")    # 2-char: LIKE fallback → hits Approval__c, ApprovalFlow fields
-search_codebase("取引")    # 2-char: LIKE fallback → hits Account, OrderService, related fields
-search_codebase("承認フロー") # 4-char: FTS5 trigram  → hits ApprovalFlow, ApprovalStage__c
-search_codebase("顧客管理")  # 4-char: FTS5 trigram  → hits AccountService, CustomerService
-```
-
-**CamelCase splitting** is also applied at index time — `ExamTicketDownloadController` is indexed as both the full identifier and its word fragments (`Exam`, `Ticket`, `Download`, `Controller`), so partial English searches work without knowing the exact component name.
-
-### YAML Compression
-
-Instead of the full Apex source, rtk-sf extracts only what the AI agent needs to reason about a component:
-
-```yaml
-# Full Apex class: ~4,000 tokens
-# rtk-sf spec: ~300 tokens (92% reduction)
-
-component: AccountService
-type: ApexClass
-summary: Handles Account CRUD operations and related business logic
-methods:
-  - name: createAccount
-    returns: Account
-    params: [String name, String industry]
-    description: Creates and inserts a new Account record
-  - name: getAccountsByIndustry
-    returns: List<Account>
-    params: [String industry]
-    description: Returns all Accounts matching the given industry
-  - name: updateBillingAddress
-    returns: void
-    params: [Id accountId, Address newAddress]
-```
-
-### Live Watch Mode
-
-```bash
-rtk-sf watch
-# Watching: force-app/
-# Ctrl+C to stop
-```
-
-Automatically re-indexes any `.cls` or `.xml` file that changes on disk. Ideal for active development sessions.
-
----
-
-## All Commands
-
-```
-rtk-sf index               # Index ./force-app (differential)
-rtk-sf index --path ./src  # Custom source directory
-rtk-sf index --force       # Force re-index all files
-
-rtk-sf watch               # Live file watcher
-rtk-sf watch --path ./src  # Watch custom directory
-
-rtk-sf serve               # Start MCP stdio server
-
-rtk-sf ui                  # Generate dist/architecture_map.html
-rtk-sf ui --output ~/map.html  # Custom output path
-
-rtk-sf --version           # Show version
-rtk-sf --help              # Show help
-```
-
----
-
-## MCP Tools Reference
-
-| Tool | Parameters | Returns |
-|---|---|---|
-| `query_compressed_spec` | `component_name: str` | YAML spec (~300 tokens) + all annotations |
-| `search_codebase` | `query: str`, `limit: int = 5` | Ranked results with snippets (English & Japanese) |
-| `get_relations` | `component_name: str` | Upstream callers + downstream deps |
-| `list_components` | `type: str = "all"` | All indexed components by type |
-| `annotate_component` | `component_name`, `key`, `value`, `source` | Saves discovered business logic back to the index |
-| `get_class_skeleton` | `component_name: str`, `focus_methods: list` | Apex source with non-focus method bodies collapsed (~280 tokens) |
-| `sf_command` | `action: str`, `target_org: str`, `...` | Runs sf CLI silently, returns JSON result |
-| `get_object_schema` | `object_name: str` | Compact field profile from local index (~150 tokens, no org call) |
-| `soql_query` | `query: str`, `target_org: str`, `sample_size: int = 3` | Capped SOQL result (3 clean rows with truncation notice) |
-
-### `annotate_component` — Knowledge Annotation (v0.3.0)
-
-When your AI agent discovers business logic hidden inside method bodies — conditions, SOQL filters, access rules — it can write that knowledge back to the index so future agents find it without re-reading the source.
-
-```
-# First session: AI reads source and discovers a condition
-Agent → [reads OrderApprovalController.cls]
-      → finds: if (order.Status__c != '承認済') throw AuraHandledException
-      → [calls annotate_component(
-            component_name = "Order__c",
-            key            = "business_rule",
-            value          = "Approval update (saveApproval) only allowed when Status__c = '承認済'. Owner check: AssignedUser__r.Contact__c = current user.",
-            source         = "ai_discovery"
-         )]
-
-# All future sessions: no source read needed
-Agent → [calls search_codebase("approval condition")]
-      → returns Order__c with annotation in results
-
-Agent → [calls query_compressed_spec("Order__c")]
-      → returns YAML spec PLUS:
-         ## Annotations (discovered business logic)
-         [business_rule] (ai_discovery · 2026-09-06)
-           Approval update only allowed when Status__c = '承認済'. ...
-```
-
-**Virtuous cycle**: each session makes the knowledge base richer for the next one — at zero additional token cost.
-
----
-
-## Supported Salesforce Metadata
-
-rtk-sf indexes all major Salesforce metadata types supported by the sf CLI, grouped below by category.
-
-### Code / Programmatic
-
-| Type | Source | What is indexed |
-|---|---|---|
-| ApexClass | `*.cls` | Class name, ApexDoc summary, all method signatures + descriptions |
-| ApexTrigger | `*.trigger` | Trigger name, sObject, trigger events (before/after insert/update/…) |
-| ApexPage | `*.page` | Controller, title attribute |
-| ApexComponent | `*.component` | Controller, access attribute |
-| LightningComponentBundle (LWC) | `lwc/<name>/` directory | Targets, `@api` properties, public methods, child component references |
-| AuraDefinitionBundle | `aura/<name>/` directory | Bundle type (Component/App), `<aura:attribute>` declarations |
-
-### UI / Metadata
-
-| Type | Source | What is indexed |
-|---|---|---|
-| Custom Object | `*.object-meta.xml` | Label, fields list, lookup relationships |
-| Custom Field | `*/fields/*.field-meta.xml` | Name, type, label, required, description |
-| Flow | `*.flow-meta.xml` | Label, process type, status, element counts |
-| FlexiPage | `*.flexipage-meta.xml` | Page type, template, component count + references |
-| Layout | `*.layout-meta.xml` | Section count, related list count |
-| CompactLayout | `*.compactLayout-meta.xml` | Label, fields list |
-| ListView | `*.listView-meta.xml` | Label, filter scope, columns |
-| QuickAction | `*.quickAction-meta.xml` | Type, target object, label |
-| CustomTab | `*.tab-meta.xml` | Custom object, Aura component, or page reference |
-
-### Security / Access
-
-| Type | Source | What is indexed |
-|---|---|---|
-| Profile | `*.profile-meta.xml` | User license, object permissions (CRUD), enabled user permissions |
-| PermissionSet | `*.permissionset-meta.xml` | Object permissions, enabled user permissions |
-| PermissionSetGroup | `*.permissionsetgroup-meta.xml` | Included permission sets list |
-| CustomPermission | `*.customPermission-meta.xml` | Label, description |
-
-### Rules / Automation
-
-| Type | Source | What is indexed |
-|---|---|---|
-| ValidationRule | embedded in `*.object-meta.xml` | Active flag, formula, error message, description |
-| WorkflowRule | `*.workflow-meta.xml` | Rule names, trigger types, action counts |
-| AssignmentRules | `*.assignmentRules-meta.xml` | Rule count |
-| EscalationRules | `*.escalationRules-meta.xml` | Rule count |
-| AutoResponseRules | `*.autoResponseRules-meta.xml` | Rule count |
-| SharingRules | `*.sharingRules-meta.xml` | Owner rule count, criteria rule count |
-
-### Data / Config
-
-| Type | Source | What is indexed |
-|---|---|---|
-| CustomMetadata | `*.md-meta.xml` | Label, field/value pairs |
-| CustomLabel | `*.labels-meta.xml` | Label count, all fullName/value/language/categories entries |
-| GlobalValueSet | `*.globalValueSet-meta.xml` | Master label, all picklist values |
-| StandardValueSet | `*.standardValueSet-meta.xml` | All standard values |
-| RecordType | `*.recordType-meta.xml` | Full name, label, active, business process |
-| MatchingRule | `*.matchingRule-meta.xml` | Active, matching rule item count |
-| DuplicateRule | `*.duplicateRule-meta.xml` | Master label, active, matching rules list |
-
-### App / Navigation
-
-| Type | Source | What is indexed |
-|---|---|---|
-| CustomApplication | `*.app-meta.xml` | Label, nav type, tab count + list |
-| AppMenu | `*.appMenu-meta.xml` | App menu item count |
-| HomePageLayout | `*.homePageLayout-meta.xml` | Component count + list |
-
-### Integration / External
-
-| Type | Source | What is indexed |
-|---|---|---|
-| ConnectedApp | `*.connectedApp-meta.xml` | Label, OAuth scopes |
-| NamedCredential | `*.namedCredential-meta.xml` | Label, endpoint URL, principal type |
-| RemoteSiteSetting | `*.remoteSite-meta.xml` | URL, active flag, description |
-| AuthProvider | `*.authprovider-meta.xml` | Provider type, friendly name |
-| CspTrustedSite | `*.cspTrustedSite-meta.xml` | Endpoint URL, active flag |
-
-### Email
-
-| Type | Source | What is indexed |
-|---|---|---|
-| EmailTemplate | `*.email-meta.xml` | Name, subject, type, description |
-
-### Agentforce / AI
-
-| Type | Source | What is indexed |
-|---|---|---|
-| PromptTemplate | `*.prompttemplate-meta.xml` | Master label, type, template type, active version count |
-| GenAiPromptTemplate | `*.genAiPromptTemplate-meta.xml` | Master label, type |
-| GenAiFunction | `*.genAiFunction-meta.xml` | Master label, description, function definition |
-| AIApplication | `*.aiApplication-meta.xml` | Developer name, status |
-| Bot / BotVersion | `*.bot-meta.xml`, `*.botVersion-meta.xml` | Label, private conversation log setting, dialog count |
-
-### Analytics
-
-| Type | Source | What is indexed |
-|---|---|---|
-| WaveApplication | `*.wapp-meta.xml` | Name, label |
-| WaveDashboard | `*.wdash-meta.xml` | Name, label |
-
-### Static / Assets
-
-| Type | Source | What is indexed |
-|---|---|---|
-| StaticResource | `*.resource-meta.xml` | Content type, cache control, description |
-| ContentAsset | `*.asset-meta.xml` | Master label, language |
-
----
-
-## Installation
-
-### One command (recommended)
-
-```bash
-pip install "rtk-sf[all] @ git+https://github.com/furuCRM-Inc/rtk-sf.git@main"
-```
-
-Includes: core indexer + vector re-ranking (numpy) + local OCR (paddleocr + Pillow)
-
-### À la carte
-
-```bash
-pip install "git+https://github.com/furuCRM-Inc/rtk-sf.git@main"                                    # core only
-pip install "rtk-sf[vector] @ git+https://github.com/furuCRM-Inc/rtk-sf.git@main"                   # + vector re-ranking
-pip install "rtk-sf[ocr] @ git+https://github.com/furuCRM-Inc/rtk-sf.git@main"                      # + PaddleOCR (EN+JA)
-pip install "rtk-sf[ocr-fallback] @ git+https://github.com/furuCRM-Inc/rtk-sf.git@main"             # + EasyOCR fallback
-```
-
-### From source
-
-```bash
-git clone https://github.com/furuCRM-Inc/rtk-sf.git
-cd rtk-sf
-pip install -e ".[dev]"
-```
-
-### Requirements
-
-- Python 3.9+
-- Salesforce DX project with `force-app/` structure
-- `watchdog` (for watch mode)
-- `pyyaml` (included)
-- `numpy` (optional, for vector re-ranking)
-
 ---
 
 ## Project Structure
 
 ```
-rtk-sf/
-├── rtk_sf/
-│   ├── __init__.py        # Package exports
-│   ├── __main__.py        # CLI entry point
-│   ├── indexer.py         # Differential parser (Apex, XML, objects)
-│   ├── search.py          # SQLite FTS5 + vector hybrid search
-│   ├── watcher.py         # OS file watcher (watchdog)
-│   ├── mcp_server.py      # MCP stdio JSON-RPC server (14 tools)
-│   ├── skeleton.py        # Apex class skeleton slicer (v0.4.0)
-│   ├── sf_runner.py       # Silent sf CLI wrapper (v0.4.0)
-│   ├── data_tools.py      # Mock schema + SOQL truncation (v0.4.1)
-│   └── ui_generator.py    # Generates dist/architecture_map.html
-├── ui/
-│   └── template.html      # Cytoscape.js SPA template reference
-├── docs/
-│   ├── installation.md    # Platform-specific install guide
-│   ├── mcp-integration.md # MCP setup for Claude Code
-│   └── roi.md             # Detailed ROI analysis
-└── scripts/
-    └── install.sh         # One-command setup script
+rtk_sf/
+├── __init__.py               # Package root (v0.8.0)
+├── __main__.py               # CLI entry point
+├── mcp_server.py             # MCP stdio server — all 23 tools
+├── core_router.py            # Language detection router
+├── indexer.py                # Salesforce DX project indexer
+├── search.py                 # Keyword + semantic search
+├── skeleton.py               # Apex skeleton generator
+├── sf_runner.py              # Salesforce CLI wrapper
+├── data_tools.py             # CSV/JSON/YAML reader
+├── nlp_compactor.py          # Prompt NLP compressor
+├── java/
+│   ├── java_skeletonizer.py  # Java structural skeleton (getter/setter detection)
+│   └── build_masker.py       # Maven + Gradle output compactor
+├── kotlin/
+│   ├── kt_skeletonizer.py    # Kotlin skeleton (expression-body, companion objects)
+│   └── gradle_masker.py      # Gradle output compactor
+├── typescript/
+│   ├── ts_skeletonizer.py    # TypeScript/JS skeleton (arrow fns, decorators)
+│   └── jest_masker.py        # Jest/Vitest output compactor
+├── python/
+│   ├── ast_skeletonizer.py   # Python AST skeleton (dataclasses, type hints)
+│   └── pytest_masker.py      # pytest output compactor
+└── hooks/
+    ├── compact_prompt.py     # Pre-submit hook: NLP compress prompts
+    └── ocr_intercept.py      # Pre-submit hook: OCR image → text
 ```
 
 ---
 
-## Contributing
-
-We actively want the Salesforce developer community to build on top of rtk-sf. Here are the most impactful ways to contribute right now:
-
-### 🔧 High-Impact: Write a new metadata parser
-
-The indexer lives in `rtk_sf/indexer.py`. Adding a new parser means AI agents can understand one more Salesforce metadata type without reading raw XML. Open tasks:
-
-| Metadata | File pattern | Status |
-|---|---|---|
-| OmniStudio FlexCard | `*.flexCard-meta.xml` | **wanted** |
-| OmniStudio DataRaptor | `*.dataRaptor-meta.xml` | **wanted** |
-| Experience Cloud page | `*.json` (ExperienceBundle) | **wanted** |
-| Slack App | `*.slackApp-meta.xml` | **wanted** |
-| Custom Notification | `*.customNotificationType-meta.xml` | **wanted** |
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the 30-line parser template.
-
-### 📊 Medium: Improve the architecture map
-
-`rtk_sf/ui_generator.py` generates the Cytoscape.js SPA. Ideas:
-
-- Add edge labels showing the relationship type (calls / references / extends)
-- Add a timeline view sorted by `updated_at` (shows recently changed components)
-- Export the graph as PNG/SVG
-
-### 📝 Easy: Add annotations from your own project
-
-If you discover business rules, access conditions, or SOQL filters that are important to document, use `annotate_component` and open a discussion — we want to build a community knowledge base.
-
-### Quick start for contributors
+## Installation Options
 
 ```bash
-git clone https://github.com/furuCRM-Inc/rtk-sf.git
-cd rtk-sf
-pip install -e ".[dev]"
-pytest
+# Salesforce only (minimal)
+pip install rtk-sf
+
+# Add vector search
+pip install "rtk-sf[vector]"
+
+# Add OCR (PaddleOCR)
+pip install "rtk-sf[ocr]"
+
+# Add OCR fallback (EasyOCR)
+pip install "rtk-sf[ocr-fallback]"
+
+# Everything
+pip install "rtk-sf[all]"
 ```
+
+All language tracks (Java, Kotlin, TypeScript, Python) are included in the base install — no extra dependencies needed.
+
+---
+
+## Salesforce Setup
+
+```bash
+# Index your project (run from the Salesforce project root)
+python3 -m rtk_sf index
+
+# Re-index after code changes
+python3 -m rtk_sf index
+
+# Dry-run: see what would be indexed
+python3 -m rtk_sf dry-run
+```
+
+The indexer scans for:
+- **Apex classes** (`.cls`) — methods, fields, annotations, test coverage
+- **Custom objects** (`.object-meta.xml`) — fields, picklist values, relationships
+- **Flows** (`.flow-meta.xml`) — decision nodes, variables, entry conditions
+- **Triggers** (`.trigger`) — events, entity references
 
 ---
 
 ## Roadmap
 
-- [x] Permission Set indexing
-- [x] Custom Label indexing
-- [x] Apex Trigger indexing (separate from class)
-- [x] LWC component indexing (HTML + JS summary)
-- [x] Aura bundle indexing
-- [x] Full coverage of all sf CLI metadata types (v0.2.0)
-- [x] Japanese search — FTS5 trigram + LIKE fallback for 1–2 char terms (v0.3.0)
-- [x] CamelCase splitting for partial English identifier search (v0.3.0)
-- [x] `annotate_component` MCP tool — write discovered business logic back to index (v0.3.0)
-- [x] Annotations included in `query_compressed_spec` response (v0.3.0)
-- [x] `get_class_skeleton` — surgical Apex read, collapses non-focus method bodies (v0.4.0)
-- [x] `sf_command` — silent sf CLI wrapper with JSON output (v0.4.0)
-- [x] `get_object_schema` — compact field profile from local index, zero org calls (v0.4.1)
-- [x] `soql_query` — SOQL with enforced row cap and truncation notice (v0.4.1)
-- [ ] VS Code extension with inline spec preview
-- [ ] GitHub Actions integration for CI spec validation
-- [ ] Org-aware indexing (pull metadata from connected org via `sf` CLI)
-- [ ] Annotation export/import for team knowledge sharing
+- [x] Salesforce Apex token reduction (v0.4.x)
+- [x] Python language track — `get_python_skeleton`, `run_python_tests` (v0.5.0)
+- [x] TypeScript/JS language track — `get_ts_skeleton`, `run_js_tests` (v0.6.0)
+- [x] Kotlin language track — `get_kotlin_skeleton`, `run_gradle` (v0.7.0)
+- [x] Java language track — `get_java_skeleton`, `run_java_build` (v0.8.0)
+- [ ] Go language track (planned)
+- [ ] Rust language track (planned)
+- [ ] Ruby language track (planned)
+- [ ] Semantic vector search across all tracks
+
+---
+
+## Contributing
+
+PRs welcome. The codebase follows a consistent pattern for each language track:
+
+```
+rtk_sf/<language>/
+├── <lang>_skeletonizer.py   # Two-pass skeleton extractor
+└── <tool>_masker.py         # Build/test output compactor
+```
+
+To add a new language track:
+1. Create `rtk_sf/<language>/` with `__init__.py`
+2. Implement `skeletonize(source, focus_names)` → `str`
+3. Implement `run_build(...)` → `str`
+4. Register 2 tools in `mcp_server.py`
+5. Add extension/keyword routing in `core_router.py`
 
 ---
 
 ## License
 
-[MIT](LICENSE) — free to use, modify, and distribute.
+MIT — see [LICENSE](LICENSE).
 
----
-
-Built with love by [furuCRM Inc.](https://www.furucrm.com)
-
-*Helping Salesforce development teams move faster with AI.*
+Built by [furuCRM Inc.](https://www.furucrm.com)
