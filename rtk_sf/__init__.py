@@ -6,7 +6,7 @@ compressed YAML specs and serves them via MCP to AI agents like Claude Code and 
 dramatically reducing token consumption.
 """
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 __author__ = "furuCRM Inc."
 __email__ = "contact@furucrm.com"
 __license__ = "MIT"

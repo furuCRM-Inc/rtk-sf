@@ -30,6 +30,7 @@ class Track(str, Enum):
     PYTHON = "python"
     TYPESCRIPT = "typescript"
     KOTLIN = "kotlin"
+    JAVA = "java"
     UNKNOWN = "unknown"
 
 
@@ -63,6 +64,12 @@ _KT_CLI_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
+_JAVA_EXTENSIONS = {".java"}
+_JAVA_CLI_KEYWORDS = re.compile(
+    r"\b(mvn|maven|javac|java\s+-jar|spring-boot:run)\b",
+    re.IGNORECASE,
+)
+
 
 def route_file(file_path: str | Path) -> Track:
     """Return the Track for a given file path based on its extension."""
@@ -80,6 +87,8 @@ def route_file(file_path: str | Path) -> Track:
         return Track.TYPESCRIPT
     if suffix in _KT_EXTENSIONS:
         return Track.KOTLIN
+    if suffix in _JAVA_EXTENSIONS:
+        return Track.JAVA
 
     return Track.UNKNOWN
 
@@ -94,6 +103,8 @@ def route_command(command: str) -> Track:
         return Track.TYPESCRIPT
     if _KT_CLI_KEYWORDS.search(command):
         return Track.KOTLIN
+    if _JAVA_CLI_KEYWORDS.search(command):
+        return Track.JAVA
     return Track.UNKNOWN
 
 
