@@ -117,7 +117,9 @@ def _skeleton_function(
         for stmt in body[start:]:
             try:
                 src = ast.unparse(stmt)
-                lines.append(f"{indent}    {src}")
+                # ast.unparse produces flat multi-line strings; re-indent every line
+                for src_line in src.splitlines():
+                    lines.append(f"{indent}    {src_line}")
             except Exception:
                 lines.append(f"{indent}    ...")
     else:
