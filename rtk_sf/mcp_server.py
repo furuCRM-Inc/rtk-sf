@@ -41,6 +41,77 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# Module-level helpers
+# ---------------------------------------------------------------------------
+
+def _get_record_types(object_name: str, project_dir: str | None = None) -> str:
+    """
+    Parse *.recordType-meta.xml files for the given object and return a
+    compressed summary — FullName, Label, Active, and picklist names only.
+    """
+    import xml.etree.ElementTree as ET
+
+    base = Path(project_dir) if project_dir else Path.cwd()
+    ns = "http://soap.sforce.com/2006/04/metadata"
+
+    # Search force-app tree for matching record type files
+    search_root = base / "force-app"
+    if not search_root.exists():
+        search_root = base
+
+    matches = [
+        p for p in search_root.rglob("*.recordType-meta.xml")
+        if object_name.lower() in str(p).lower()
+    ]
+
+    if not matches:
+        return (
+            f"No recordType-meta.xml files found for '{object_name}' "
+            f"under {search_root}.\n"
+            f"Re-index with: python3 -m rtk_sf index\n"
+            f"Or verify the object API name is correct."
+        )
+
+    lines: list[str] = [f"RecordTypes for {object_name} ({len(matches)} found)\n"]
+    for path in sorted(matches):
+        try:
+            tree = ET.parse(path)
+            root = tree.getroot()
+
+            def _text(tag: str) -> str:
+                el = root.find(f"{{{ns}}}{tag}")
+                return el.text.strip() if el is not None and el.text else "N/A"
+
+            full_name = _text("fullName")
+            label = _text("label")
+            active = _text("active")
+            picklists = [
+                el.text.strip()
+                for el in root.findall(f".//{{{ns}}}picklist")
+                if el.text
+            ]
+
+            lines.append(f"=== {path.relative_to(base)} ===")
+            lines.append(f"FullName : {full_name}")
+            lines.append(f"Label    : {label}")
+            lines.append(f"Active   : {active}")
+            lines.append(
+                f"Picklists: [{', '.join(picklists)}]"
+                if picklists
+                else "Picklists: (none)"
+            )
+            lines.append(
+                "[rtk-sf: Picklist value matrices hidden. "
+                "Call get_object_schema to see allowed values per field.]\n"
+            )
+        except Exception as exc:
+            lines.append(f"=== {path.name} — parse error: {exc} ===\n")
+
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # Tool definitions (returned in initialize response)
 # ---------------------------------------------------------------------------
@@ -214,6 +285,30 @@ _TOOLS: list[dict[str, Any]] = [
                     "type": "string",
                     "description": "Salesforce object API name, e.g. 'Order__c' or 'Account'.",
                 }
+            },
+            "required": ["object_name"],
+        },
+    },
+    {
+        "name": "get_record_types",
+        "description": (
+            "Return a compressed summary of all RecordType definitions for a Salesforce object "
+            "by parsing local *.recordType-meta.xml files — WITHOUT reading raw XML files. "
+            "Shows FullName, Label, Active state, and tracked picklist names only. "
+            "Token impact: prevents thousands of tokens of declarative XML flooding the context. "
+            "Use this instead of 'find force-app ... | xargs cat' when you need RecordType info."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "object_name": {
+                    "type": "string",
+                    "description": "Salesforce object API name, e.g. 'Application__c' or 'Order__c'.",
+                },
+                "project_dir": {
+                    "type": "string",
+                    "description": "Root directory of the Salesforce DX project (default: current working directory).",
+                },
             },
             "required": ["object_name"],
         },
@@ -738,6 +833,8 @@ class MCPServer:
                 result = self._tool_sf_command(arguments)
             elif tool_name == "get_object_schema":
                 result = self._tool_get_object_schema(arguments)
+            elif tool_name == "get_record_types":
+                result = self._tool_get_record_types(arguments)
             elif tool_name == "soql_query":
                 result = self._tool_soql_query(arguments)
             elif tool_name == "compact_prompt":
@@ -838,6 +935,15 @@ class MCPServer:
         rtk_dir = self.project_root / ".rtk-sf"
         result = get_object_schema(object_name, rtk_dir)
         record_savings("get_object_schema", raw_tokens=5000, compressed_tokens=len(result) // 4)
+        return result
+
+    def _tool_get_record_types(self, args: dict) -> str:
+        object_name = args.get("object_name", "").strip()
+        if not object_name:
+            return "Error: object_name is required."
+        from rtk_sf.dry_run import record_savings
+        result = _get_record_types(object_name, args.get("project_dir"))
+        record_savings("get_record_types", raw_tokens=4000, compressed_tokens=len(result) // 4)
         return result
 
     def _tool_soql_query(self, args: dict) -> str:
