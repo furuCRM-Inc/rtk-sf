@@ -351,6 +351,79 @@ _TOOLS: list[dict[str, Any]] = [
             "required": ["image_path"],
         },
     },
+    # ── Python track tools (v0.5.0) ────────────────────────────────────────
+    {
+        "name": "get_python_skeleton",
+        "description": (
+            "Return a compressed structural skeleton of a Python file using AST analysis. "
+            "Shows class names, base classes, method signatures with type hints, "
+            "__init__ bodies, and docstrings — all other method bodies are hidden. "
+            "Use instead of reading the raw .py file; saves ~90% of tokens."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Absolute or relative path to the .py file.",
+                },
+                "focus_methods": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Method names whose full bodies should be shown (others stay hidden).",
+                },
+            },
+            "required": ["file_path"],
+        },
+    },
+    {
+        "name": "run_python_tests",
+        "description": (
+            "Run pytest on a path and return a compact summary. "
+            "On success: single-line pass count. "
+            "On failure: file path, line number, and AssertionError only — no noisy traceback. "
+            "Reduces a 200-line pytest log to 5-10 lines."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "test_path": {
+                    "type": "string",
+                    "description": "File or directory to pass to pytest (default '.').",
+                    "default": ".",
+                },
+                "extra_args": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Extra pytest flags, e.g. [\"-x\", \"-k\", \"test_auth\"].",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "read_data_file",
+        "description": (
+            "Read a CSV, JSON, or JSONL data file and return a compact structural preview: "
+            "schema (column names + types) plus up to 3 sample rows. "
+            "Never dumps the full file — protects context from large datasets."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Path to the CSV, JSON, or JSONL file.",
+                },
+                "sample_rows": {
+                    "type": "integer",
+                    "description": "Maximum rows to return (default 3, max 10).",
+                    "default": 3,
+                },
+            },
+            "required": ["file_path"],
+        },
+    },
     {
         "name": "annotate_component",
         "description": (
@@ -497,6 +570,12 @@ class MCPServer:
                 result = self._tool_get_roi_stats()
             elif tool_name == "extract_image_text":
                 result = self._tool_extract_image_text(arguments)
+            elif tool_name == "get_python_skeleton":
+                result = self._tool_get_python_skeleton(arguments)
+            elif tool_name == "run_python_tests":
+                result = self._tool_run_python_tests(arguments)
+            elif tool_name == "read_data_file":
+                result = self._tool_read_data_file(arguments)
             else:
                 self._write(self._error(request_id, -32601, f"Unknown tool: {tool_name}"))
                 return
@@ -761,6 +840,91 @@ class MCPServer:
             lines.append("")
 
         return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # Python track tools
+    # ------------------------------------------------------------------
+
+    def _tool_get_python_skeleton(self, args: dict) -> str:
+        file_path = args.get("file_path", "").strip()
+        if not file_path:
+            return "Error: file_path is required."
+        focus_methods = args.get("focus_methods") or None
+
+        from rtk_sf.python.ast_skeletonizer import skeletonize_file
+        result = skeletonize_file(file_path, focus_methods)
+
+        from rtk_sf.dry_run import record_savings
+        raw_est = len(result) // 4
+        record_savings("get_python_skeleton", raw_tokens=raw_est * 10, compressed_tokens=raw_est)
+        return result
+
+    def _tool_run_python_tests(self, args: dict) -> str:
+        test_path = args.get("test_path", ".").strip() or "."
+        extra_args = args.get("extra_args") or []
+
+        from rtk_sf.python.pytest_masker import run_tests
+        return run_tests(test_path, extra_args)
+
+    def _tool_read_data_file(self, args: dict) -> str:
+        file_path = args.get("file_path", "").strip()
+        if not file_path:
+            return "Error: file_path is required."
+        sample_rows = min(int(args.get("sample_rows", 3)), 10)
+
+        from pathlib import Path as _Path
+        import json as _json
+
+        p = _Path(file_path)
+        if not p.exists():
+            return f"File not found: {file_path}"
+
+        suffix = p.suffix.lower()
+        lines_out: list[str] = [f"# Data preview: {p.name}\n"]
+
+        try:
+            if suffix == ".csv":
+                import csv
+                with open(p, encoding="utf-8", errors="replace", newline="") as fh:
+                    reader = csv.DictReader(fh)
+                    rows = []
+                    for i, row in enumerate(reader):
+                        if i >= sample_rows:
+                            break
+                        rows.append(dict(row))
+                    fieldnames = reader.fieldnames or []
+
+                lines_out.append(f"Format : CSV")
+                lines_out.append(f"Columns: {', '.join(fieldnames)} ({len(fieldnames)} total)")
+                lines_out.append(f"Sample ({len(rows)} rows):")
+                for row in rows:
+                    lines_out.append(f"  {_json.dumps(row, ensure_ascii=False)}")
+
+            elif suffix in {".json", ".jsonl"}:
+                raw = p.read_text(encoding="utf-8", errors="replace")
+                if suffix == ".jsonl":
+                    records = [_json.loads(ln) for ln in raw.splitlines() if ln.strip()]
+                else:
+                    data = _json.loads(raw)
+                    records = data if isinstance(data, list) else [data]
+
+                sample = records[:sample_rows]
+                total = len(records)
+                lines_out.append(f"Format : {'JSONL' if suffix == '.jsonl' else 'JSON'}")
+                lines_out.append(f"Records: {total} total, showing {len(sample)}")
+                if sample and isinstance(sample[0], dict):
+                    keys = list(sample[0].keys())
+                    lines_out.append(f"Keys   : {', '.join(keys)}")
+                lines_out.append("Sample:")
+                for rec in sample:
+                    lines_out.append(f"  {_json.dumps(rec, ensure_ascii=False)}")
+            else:
+                return f"Unsupported file type: {suffix}. Supported: .csv, .json, .jsonl"
+
+        except Exception as exc:
+            return f"Error reading {p.name}: {exc}"
+
+        return "\n".join(lines_out)
 
     # ------------------------------------------------------------------
     # Main loop
