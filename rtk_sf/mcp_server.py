@@ -351,6 +351,67 @@ _TOOLS: list[dict[str, Any]] = [
             "required": ["image_path"],
         },
     },
+    # ── TypeScript track tools (v0.6.0) ────────────────────────────────────
+    {
+        "name": "get_ts_skeleton",
+        "description": (
+            "Return a compressed structural skeleton of a TypeScript/JavaScript file. "
+            "Shows imports, interfaces/types/enums (in full), class signatures and "
+            "method signatures, export function signatures. "
+            "Implementation bodies are replaced with { /* logic hidden */ }. "
+            "Use instead of reading the raw .ts/.tsx/.js/.jsx file; saves ~85% of tokens."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Absolute or relative path to the .ts/.tsx/.js/.jsx file.",
+                },
+                "focus_names": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Function/method names whose full bodies should be shown.",
+                },
+            },
+            "required": ["file_path"],
+        },
+    },
+    {
+        "name": "run_js_tests",
+        "description": (
+            "Run a Jest/Vitest/Playwright test suite and return a compact summary. "
+            "On success: single-line pass count. "
+            "On failure: test name, expect() mismatch, and first source file frame only — "
+            "all node_modules stack frames are stripped. "
+            "Reduces a 300-line Jest log to ~10 lines."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "test_path": {
+                    "type": "string",
+                    "description": "File, directory, or pattern to pass to the test runner.",
+                },
+                "runner": {
+                    "type": "string",
+                    "enum": ["jest", "vitest", "playwright"],
+                    "description": "Test runner to use (default: 'jest').",
+                    "default": "jest",
+                },
+                "extra_args": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Extra CLI flags, e.g. ['--testPathPattern=payment', '--coverage'].",
+                },
+                "cwd": {
+                    "type": "string",
+                    "description": "Working directory for the test command (default: current directory).",
+                },
+            },
+            "required": [],
+        },
+    },
     # ── Python track tools (v0.5.0) ────────────────────────────────────────
     {
         "name": "get_python_skeleton",
@@ -570,6 +631,10 @@ class MCPServer:
                 result = self._tool_get_roi_stats()
             elif tool_name == "extract_image_text":
                 result = self._tool_extract_image_text(arguments)
+            elif tool_name == "get_ts_skeleton":
+                result = self._tool_get_ts_skeleton(arguments)
+            elif tool_name == "run_js_tests":
+                result = self._tool_run_js_tests(arguments)
             elif tool_name == "get_python_skeleton":
                 result = self._tool_get_python_skeleton(arguments)
             elif tool_name == "run_python_tests":
@@ -840,6 +905,28 @@ class MCPServer:
             lines.append("")
 
         return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # TypeScript track tools
+    # ------------------------------------------------------------------
+
+    def _tool_get_ts_skeleton(self, args: dict) -> str:
+        file_path = args.get("file_path", "").strip()
+        if not file_path:
+            return "Error: file_path is required."
+        focus_names = args.get("focus_names") or None
+
+        from rtk_sf.typescript.ts_skeletonizer import skeletonize_file
+        return skeletonize_file(file_path, focus_names)
+
+    def _tool_run_js_tests(self, args: dict) -> str:
+        test_path = args.get("test_path") or None
+        runner = args.get("runner", "jest")
+        extra_args = args.get("extra_args") or []
+        cwd = args.get("cwd") or None
+
+        from rtk_sf.typescript.jest_masker import run_tests
+        return run_tests(test_path, runner, extra_args, cwd)
 
     # ------------------------------------------------------------------
     # Python track tools
