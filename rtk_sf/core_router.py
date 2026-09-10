@@ -7,12 +7,15 @@ or the Python track, and dispatches to the appropriate sub-module.
 Detection rules (in priority order):
   Salesforce track: .cls, .trigger, .xml, .cmp, .app, .page, sf/sfdx keywords
   Python track    : .py, pytest/uv/ruff/mypy keywords
+  TypeScript track: .ts, .tsx, .js, .jsx, .mjs, .cjs, jest/vitest keywords
+  Kotlin track    : .kt, .kts, gradlew/gradle keywords
 
 Usage:
     from rtk_sf.core_router import route_file, Track
 
     track = route_file("src/mymodule.py")    # → Track.PYTHON
     track = route_file("classes/Foo.cls")    # → Track.SALESFORCE
+    track = route_file("Service.kt")         # → Track.KOTLIN
 """
 
 from __future__ import annotations
@@ -26,6 +29,7 @@ class Track(str, Enum):
     SALESFORCE = "salesforce"
     PYTHON = "python"
     TYPESCRIPT = "typescript"
+    KOTLIN = "kotlin"
     UNKNOWN = "unknown"
 
 
@@ -53,6 +57,12 @@ _TS_CLI_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
+_KT_EXTENSIONS = {".kt", ".kts"}
+_KT_CLI_KEYWORDS = re.compile(
+    r"\b(gradlew?|kotlinc|kotlin\s+|\.\/gradlew)\b",
+    re.IGNORECASE,
+)
+
 
 def route_file(file_path: str | Path) -> Track:
     """Return the Track for a given file path based on its extension."""
@@ -68,6 +78,8 @@ def route_file(file_path: str | Path) -> Track:
         return Track.PYTHON
     if suffix in _TS_EXTENSIONS:
         return Track.TYPESCRIPT
+    if suffix in _KT_EXTENSIONS:
+        return Track.KOTLIN
 
     return Track.UNKNOWN
 
@@ -80,6 +92,8 @@ def route_command(command: str) -> Track:
         return Track.PYTHON
     if _TS_CLI_KEYWORDS.search(command):
         return Track.TYPESCRIPT
+    if _KT_CLI_KEYWORDS.search(command):
+        return Track.KOTLIN
     return Track.UNKNOWN
 
 
