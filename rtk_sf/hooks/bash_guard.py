@@ -46,7 +46,7 @@ _LWC_META_RE = re.compile(r"js-meta\.xml")
 # Command prefixes that are safe to pass through — either language interpreters whose
 # script bodies may contain js-meta.xml as string literals, or VCS/build tools whose
 # arguments (commit messages, log output) are not file-read pipelines.
-_INTERPRETER_PREFIX = re.compile(r"^\s*(python3?|node|ruby|perl|bash\s+-c|git|npm|npx|mvn|gradle)\b")
+_INTERPRETER_PREFIX = re.compile(r"^\s*(python3?|node|ruby|perl|bash\s+-c|git|gh|npm|npx|mvn|gradle)\b")
 
 # Direct read verbs that always indicate content consumption when targeting js-meta.xml
 _LWC_DIRECT_READ = re.compile(r"\b(grep|cat)\b")
