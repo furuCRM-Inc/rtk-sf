@@ -16,6 +16,8 @@ This project is indexed by **rtk-sf**. Always use the MCP tools before reading r
 | Get object field list for data creation | `get_object_schema(object_name)` |
 | Inspect existing records (sample only) | `soql_query(query, target_org, sample_size)` |
 | Read RecordType definitions for an object | `get_record_types(object_name)` |
+| List LWC components exposed to Experience Cloud | `get_lwc_targets(filter_exposed_only=true)` |
+| List all LWC components with their targets | `get_lwc_targets()` |
 
 **Never** do these directly — use the tool instead:
 - Read a raw .cls file                    -> use `get_class_skeleton`
@@ -24,6 +26,7 @@ This project is indexed by **rtk-sf**. Always use the MCP tools before reading r
 - sf project deploy start                  -> use `sf_command(action="deploy")`
 - find force-app ... \| xargs cat          -> use `get_record_types(object_name)`
 - Any pipeline scan over recordTypes/, fields/, or layouts/ folders -> use `get_record_types` or `get_object_schema`
+- grep/cat/find against lwc/*/*.js-meta.xml -> use `get_lwc_targets()`
 
 If search returns no results, re-index with: `python3 -m rtk_sf index`
 Do NOT use `npx rtk-sf` — rtk-sf is a Python package, not npm.

@@ -46,6 +46,84 @@ logger = logging.getLogger(__name__)
 # Module-level helpers
 # ---------------------------------------------------------------------------
 
+def _get_lwc_targets(directory: str | None = None, filter_exposed_only: bool = False) -> str:
+    """
+    Parse *.js-meta.xml files for LWC components and return a compressed summary.
+
+    Shows only: component name, isExposed boolean, and <target> list.
+    Suppresses all <targetConfigs> blocks and property-level markup to prevent
+    token floods when Claude scans the lwc/ directory.
+    """
+    import xml.etree.ElementTree as ET
+
+    base = Path(directory) if directory else Path.cwd()
+    ns = "http://soap.sforce.com/2006/04/metadata"
+
+    search_root = base / "force-app"
+    if not search_root.exists():
+        search_root = base
+
+    matches = list(search_root.rglob("*.js-meta.xml"))
+
+    if not matches:
+        return (
+            f"No *.js-meta.xml files found under {search_root}.\n"
+            "Verify the project root or check that force-app/ exists."
+        )
+
+    lines: list[str] = []
+    included = 0
+
+    for path in sorted(matches):
+        try:
+            tree = ET.parse(path)
+            root = tree.getroot()
+
+            exposed_el = root.find(f"{{{ns}}}isExposed")
+            is_exposed = (
+                exposed_el is not None
+                and exposed_el.text is not None
+                and exposed_el.text.strip().lower() == "true"
+            )
+
+            if filter_exposed_only and not is_exposed:
+                continue
+
+            targets = [
+                el.text.strip()
+                for el in root.findall(f".//{{{ns}}}target")
+                if el.text
+            ]
+
+            component_name = path.name.replace(".js-meta.xml", "")
+            lines.append(f"=== {component_name} ===")
+            lines.append(f"Exposed: {str(is_exposed).lower()}")
+            lines.append(
+                f"Targets: [{', '.join(targets)}]" if targets else "Targets: []"
+            )
+            lines.append(
+                "[rtk-sf: Compressed LWC Metadata Block — "
+                "targetConfigs and property definitions hidden to save token space.]\n"
+            )
+            included += 1
+        except Exception as exc:
+            lines.append(f"=== {path.name} — parse error: {exc} ===\n")
+
+    if not lines:
+        return (
+            f"No LWC components matched"
+            f"{' (filter_exposed_only=true)' if filter_exposed_only else ''}.\n"
+            f"Total .js-meta.xml files scanned: {len(matches)}"
+        )
+
+    header = (
+        f"LWC Metadata Summary — {included} component(s)"
+        f"{' (exposed only)' if filter_exposed_only else ''}, "
+        f"{len(matches)} total scanned\n"
+    )
+    return header + "\n".join(lines)
+
+
 def _get_record_types(object_name: str, project_dir: str | None = None) -> str:
     """
     Parse *.recordType-meta.xml files for the given object and return a
@@ -287,6 +365,32 @@ _TOOLS: list[dict[str, Any]] = [
                 }
             },
             "required": ["object_name"],
+        },
+    },
+    {
+        "name": "get_lwc_targets",
+        "description": (
+            "Return a compressed summary of all LWC component metadata "
+            "by parsing local *.js-meta.xml files — WITHOUT reading raw XML files. "
+            "Shows component name, isExposed boolean, and clean <target> list only. "
+            "All <targetConfigs> blocks and property definitions are suppressed. "
+            "Token impact: prevents 50x token bloat when scanning the lwc/ directory. "
+            "Use this instead of 'find lwc ... | xargs cat' or 'grep ... js-meta.xml' "
+            "when you need to identify which components are exposed to Experience Cloud."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "directory": {
+                    "type": "string",
+                    "description": "Root directory of the Salesforce DX project (default: current working directory).",
+                },
+                "filter_exposed_only": {
+                    "type": "boolean",
+                    "description": "If true, return only components where isExposed=true (default: false).",
+                    "default": False,
+                },
+            },
         },
     },
     {
@@ -833,6 +937,8 @@ class MCPServer:
                 result = self._tool_sf_command(arguments)
             elif tool_name == "get_object_schema":
                 result = self._tool_get_object_schema(arguments)
+            elif tool_name == "get_lwc_targets":
+                result = self._tool_get_lwc_targets(arguments)
             elif tool_name == "get_record_types":
                 result = self._tool_get_record_types(arguments)
             elif tool_name == "soql_query":
@@ -935,6 +1041,14 @@ class MCPServer:
         rtk_dir = self.project_root / ".rtk-sf"
         result = get_object_schema(object_name, rtk_dir)
         record_savings("get_object_schema", raw_tokens=5000, compressed_tokens=len(result) // 4)
+        return result
+
+    def _tool_get_lwc_targets(self, args: dict) -> str:
+        directory = args.get("directory") or str(self.project_root)
+        filter_exposed_only = bool(args.get("filter_exposed_only", False))
+        from rtk_sf.dry_run import record_savings
+        result = _get_lwc_targets(directory, filter_exposed_only)
+        record_savings("get_lwc_targets", raw_tokens=5000, compressed_tokens=len(result) // 4)
         return result
 
     def _tool_get_record_types(self, args: dict) -> str:
