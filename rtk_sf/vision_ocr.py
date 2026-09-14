@@ -57,16 +57,23 @@ def _preprocess(image_path: str) -> str:
 
 def _paddle_extract(image_path: str) -> list[str]:
     from paddleocr import PaddleOCR
-    # 'japan' lang pack covers Kanji/Kana + alphanumeric English
-    ocr = PaddleOCR(use_angle_cls=True, lang="japan", show_log=False)
-    result = ocr.ocr(image_path, cls=True)
-    if not result or not result[0]:
-        return []
+    # PaddleOCR 3.x: use_angle_cls/show_log removed; use_textline_orientation replaces use_angle_cls.
+    # RuntimeError means paddlepaddle backend is not installed — re-raise as ImportError
+    # so the EasyOCR fallback path in extract_image_text() is triggered.
+    try:
+        ocr = PaddleOCR(lang="japan", use_textline_orientation=True)
+    except RuntimeError as exc:
+        raise ImportError(str(exc)) from exc
+
+    # 3.x returns a list of OCRResult (one per input image); each is dict-like.
+    results = ocr.predict(image_path)
     lines = []
-    for line in result[0]:
-        text, confidence = line[1]
-        if confidence > _MIN_CONFIDENCE:
-            lines.append(text)
+    for res in results:
+        texts = res["rec_texts"] if "rec_texts" in res else []
+        scores = res["rec_scores"] if "rec_scores" in res else []
+        for text, confidence in zip(texts, scores):
+            if confidence > _MIN_CONFIDENCE:
+                lines.append(text)
     return lines
 
 
