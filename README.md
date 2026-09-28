@@ -235,9 +235,9 @@ rtk-sf automatically routes to the correct track based on file extension or CLI 
 
 ---
 
-## MCP Tools Reference (23 tools)
+## MCP Tools Reference (24 tools)
 
-### Salesforce (14 tools)
+### Salesforce (15 tools)
 
 | Tool | Description |
 |---|---|
@@ -249,6 +249,7 @@ rtk-sf automatically routes to the correct track based on file extension or CLI 
 | `sf_command` | Deploy, retrieve, run tests, or execute anonymous Apex |
 | `get_object_schema` | Describe all fields on a Salesforce object |
 | `soql_query` | Run a SOQL query and return sample records |
+| `nl_to_soql` | **(v0.9.0)** Deterministic natural-language-to-SOQL compiler — turns a question like "show recent opportunities" directly into a validated, executable SOQL query (or a RECORD_UPDATE proposal), with zero LLM calls inside the tool |
 | `compact_prompt` | NLP-compress a user prompt before sending to the LLM |
 | `validate_apex` | Static validation for Apex code snippets |
 | `validate_soql` | Static validation for SOQL queries |
@@ -357,6 +358,19 @@ pip install "rtk-sf[all]"
 ```
 
 All language tracks (Java, Kotlin, TypeScript, Python) are included in the base install — no extra dependencies needed.
+
+### Upgrading
+
+```bash
+# Standard install
+pip install --upgrade rtk-sf
+
+# Editable/dev install (tracks a local clone of this repo directly —
+# no reinstall needed after future changes)
+pip install -e /path/to/rtk-sf --no-deps
+```
+
+Check `rtk-sf --version` (or the `serverInfo.version` field in the MCP `initialize` response) to confirm which version an already-registered MCP server is actually running — a server started with a bare `python3 -m rtk_sf serve` picks up whatever `rtk_sf` package the invoking `python3` resolves on `PATH`, which can silently differ from the copy you just edited or upgraded if more than one Python environment has it installed.
 
 ---
 
