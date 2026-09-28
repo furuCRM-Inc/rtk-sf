@@ -323,11 +323,18 @@ _TOOLS: list[dict[str, Any]] = [
                 },
                 "source_dir": {
                     "type": "string",
-                    "description": "Source directory path (e.g. 'force-app').",
+                    "description": (
+                        "Source directory path (e.g. 'force-app'). "
+                        "For deploy/validate this is mutually exclusive with 'metadata'."
+                    ),
                 },
                 "metadata": {
                     "type": ["string", "array"],
-                    "description": "Metadata type(s) to deploy/retrieve (e.g. 'ApexClass:AccountService').",
+                    "description": (
+                        "Metadata type(s) to deploy/retrieve (e.g. 'ApexClass:AccountService'). "
+                        "For deploy/validate this is mutually exclusive with 'source_dir' — "
+                        "the sf CLI rejects both flags together."
+                    ),
                 },
                 "test_level": {
                     "type": "string",

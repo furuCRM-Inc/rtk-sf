@@ -9,7 +9,7 @@ normally dumps to stdout never reach the AI context window.
 Token impact: cuts terminal stream response overhead by ~99%.
 
 Supported actions:
-    deploy    sf project deploy start   [--source-dir] [--metadata] [--test-level]
+    deploy    sf project deploy start   [--source-dir | --metadata] [--test-level]
     retrieve  sf project retrieve start [--source-dir] [--metadata]
     run_test  sf apex run test          [--class-names] [--test-level]
     describe  sf org describe           (read-only, always safe)
@@ -58,15 +58,27 @@ def _build_command(action: str, args: dict[str, Any]) -> list[str]:
 
     cmd = list(base) + ["--json"]
 
+    source_dir = args.get("source_dir")
+    metadata = args.get("metadata")
+
+    # `sf project deploy start` rejects --source-dir and --metadata together:
+    #   "--metadata=... cannot also be provided when using --source-dir"
+    # Retrieve accepts the combination, so only deploy/validate are constrained.
+    if action in ("deploy", "validate") and source_dir and metadata:
+        raise ValueError(
+            f"{action} accepts either source_dir or metadata, not both — "
+            "the sf CLI rejects --source-dir alongside --metadata. "
+            "Pass metadata to deploy specific components, or source_dir for a whole path."
+        )
+
     if args.get("target_org"):
         cmd += ["--target-org", str(args["target_org"])]
-    if args.get("source_dir"):
-        cmd += ["--source-dir", str(args["source_dir"])]
-    if args.get("metadata"):
-        md = args["metadata"]
-        items = md if isinstance(md, list) else [md]
+    if source_dir:
+        cmd += ["--source-dir", str(source_dir)]
+    if metadata:
+        items = metadata if isinstance(metadata, list) else [metadata]
         for item in items:
-            cmd += ["--metadata", item]
+            cmd += ["--metadata", str(item)]
     if args.get("test_level"):
         cmd += ["--test-level", str(args["test_level"])]
     if args.get("class_names"):
@@ -83,8 +95,19 @@ def _build_command(action: str, args: dict[str, Any]) -> list[str]:
 
 def _summarize_deploy(data: dict[str, Any], elapsed: float) -> str:
     """Condense a deploy/retrieve JSON result to 3 lines."""
-    result = data.get("result", {})
-    status = result.get("status", data.get("status", "Unknown"))
+    result = data.get("result") or {}
+    top_status = data.get("status")
+
+    # The sf CLI rejected the command itself (bad flag combination, missing
+    # auth, unknown org, …): the JSON carries no nested result and `status`
+    # is the process exit code. Surface the CLI's own message.
+    if not isinstance(result, dict) or (not result and top_status not in (0, None)):
+        msg = data.get("message") or data.get("name") or "Unknown error"
+        # CLI messages are multi-line; keep the summary contract to one line.
+        msg = " ".join(str(msg).split())[:300]
+        return f"❌ sf CLI error: {msg}"
+
+    status = result.get("status", top_status if top_status is not None else "Unknown")
     done = result.get("numberComponentsDeployed", result.get("fileCount", 0))
     errors = result.get("numberComponentErrors", 0)
     org = result.get("orgId", result.get("username", ""))
@@ -103,7 +126,7 @@ def _summarize_deploy(data: dict[str, Any], elapsed: float) -> str:
         )
 
     return (
-        f"✅ {status.title()}: {done} component(s)"
+        f"✅ {str(status).title()}: {done} component(s)"
         + (f" → {org}" if org else "")
         + f" in {elapsed:.1f}s"
     )
