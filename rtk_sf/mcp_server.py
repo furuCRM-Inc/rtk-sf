@@ -447,6 +447,50 @@ _TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "nl_to_soql",
+        "description": (
+            "Turn a natural-language data question (English or Japanese) directly into "
+            "SOQL and run it — or update-record intent into a proposal — without Claude "
+            "ever needing to see the object's field schema or hand-write the query. "
+            "Ported from furuCRM-Inc/flash-agent-stack's 'Jev' engine: pure regex/keyword "
+            "extraction validated against the local schema index, zero LLM calls inside "
+            "this tool. Covers common shapes like 'show recent opportunities', 'closed "
+            "cases', 'opportunities over 10M', 'leads with no phone number', 'set stage "
+            "to Closed Won for Acme Corp'. Returns {intent: UNKNOWN} when no pattern "
+            "matches — fall back to get_object_schema + soql_query in that case. "
+            "RECORD_UPDATE intents are always returned as a proposal only, never executed "
+            "as DML — confirm with the user before writing."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "user_input": {
+                    "type": "string",
+                    "description": "The natural-language question or command, e.g. \"show recent opportunities\" or \"closed cases\".",
+                },
+                "sobject_hint": {
+                    "type": "string",
+                    "description": "Salesforce object API name if already known (e.g. 'Opportunity'); otherwise resolved from synonyms/indexed object names.",
+                },
+                "target_org": {
+                    "type": "string",
+                    "description": "Org alias or username, forwarded to soql_query when executing (e.g. 'dev01').",
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "If true, return the compiled SOQL without executing it. Default false.",
+                    "default": False,
+                },
+                "sample_size": {
+                    "type": "integer",
+                    "description": "Maximum records to return when executing (default 3, same as soql_query).",
+                    "default": 3,
+                },
+            },
+            "required": ["user_input"],
+        },
+    },
+    {
         "name": "compact_prompt",
         "description": (
             "Strip conversational noise from a bilingual (English + Japanese) prompt "
@@ -856,7 +900,6 @@ class MCPServer:
 
     SERVER_INFO = {
         "name": "rtk-sf",
-        "version": "0.1.0",
         "description": "Zero-Token Knowledge Layer for Salesforce AI Agents",
     }
 
@@ -902,13 +945,15 @@ class MCPServer:
     # ------------------------------------------------------------------
 
     def _handle_initialize(self, request_id: Any, _params: dict) -> None:
+        from rtk_sf import __version__  # deferred: avoids a circular import at module load time
+
         self._write(
             self._ok(
                 request_id,
                 {
                     "protocolVersion": "2024-11-05",
                     "capabilities": {"tools": {}},
-                    "serverInfo": self.SERVER_INFO,
+                    "serverInfo": {**self.SERVER_INFO, "version": __version__},
                 },
             )
         )
@@ -943,6 +988,8 @@ class MCPServer:
                 result = self._tool_get_record_types(arguments)
             elif tool_name == "soql_query":
                 result = self._tool_soql_query(arguments)
+            elif tool_name == "nl_to_soql":
+                result = self._tool_nl_to_soql(arguments)
             elif tool_name == "compact_prompt":
                 result = self._tool_compact_prompt(arguments)
             elif tool_name == "validate_apex":
@@ -1073,6 +1120,102 @@ class MCPServer:
         )
         record_savings("soql_query", raw_tokens=8000, compressed_tokens=len(result) // 4)
         return result
+
+    def _resolve_sobject_hint(self, user_input: str, sobject_hint: str | None) -> str | None:
+        """sobject_hint -> STANDARD_SYNONYM_MAP scan -> indexed CustomObject keyword match -> None."""
+        if sobject_hint:
+            return sobject_hint
+
+        from rtk_sf.soql_compiler import STANDARD_SYNONYM_MAP
+
+        for synonym, api_name in STANDARD_SYNONYM_MAP.items():
+            if len(synonym) >= 2 and synonym in user_input:
+                return api_name
+
+        lower = user_input.lower()
+        search = self._get_search()
+        for comp in search.list_components("CustomObject"):
+            stem = comp["name"].lower().removesuffix("__c").replace("_", " ")
+            if stem and stem in lower:
+                return comp["name"]
+
+        return None
+
+    def _tool_nl_to_soql(self, args: dict) -> str:
+        import json
+
+        user_input = args.get("user_input", "").strip()
+        if not user_input:
+            return "Error: user_input is required."
+
+        from rtk_sf.data_tools import load_object_field_rows
+        from rtk_sf.dry_run import record_savings
+        from rtk_sf.soql_compiler import compile_query, try_fast_route
+
+        sobject_hint = self._resolve_sobject_hint(user_input, args.get("sobject_hint"))
+
+        valid_fields: set[str] = set()
+        field_types: dict[str, str] = {}
+        if sobject_hint:
+            rtk_dir = self.project_root / ".rtk-sf"
+            resolved = load_object_field_rows(sobject_hint, rtk_dir)
+            if not isinstance(resolved, str):
+                sobject_hint, _label, field_rows = resolved
+                valid_fields = {f["name"] for f in field_rows}
+                field_types = {f["name"]: f.get("type", "") for f in field_rows}
+
+        routed = try_fast_route(user_input, sobject_hint=sobject_hint, valid_fields=valid_fields)
+        intent = routed["intent"]
+
+        if intent == "SOQL_SEARCH":
+            compiled = compile_query(
+                {
+                    "intent": "SOQL_SEARCH",
+                    "sobject": routed["sobject"],
+                    "conditions": routed["filter"]["conditions"],
+                    "order_by": routed["filter"]["order_by"],
+                    "limit": routed["filter"]["limit"],
+                },
+                valid_fields=valid_fields,
+                field_types=field_types,
+            )
+            if args.get("dry_run"):
+                result = json.dumps(
+                    {"intent": "SOQL_SEARCH", "sobject": routed["sobject"], **compiled}, ensure_ascii=False
+                )
+            else:
+                from rtk_sf.data_tools import run_soql
+                sample = run_soql(
+                    query=compiled["query"],
+                    target_org=args.get("target_org"),
+                    sample_size=int(args.get("sample_size", 3)),
+                )
+                result = json.dumps(
+                    {"intent": "SOQL_SEARCH", "sobject": routed["sobject"], "query": compiled["query"],
+                     "warnings": compiled["warnings"], "results": sample},
+                    ensure_ascii=False,
+                )
+            record_savings("nl_to_soql", raw_tokens=8000, compressed_tokens=len(result) // 4)
+            return result
+
+        if intent == "RECORD_UPDATE":
+            # Proposal only — never auto-execute a DML update from a regex-parsed guess.
+            result = json.dumps(
+                {
+                    "intent": "RECORD_UPDATE",
+                    "sobject": routed.get("sobject"),
+                    "search_name": routed.get("search_name"),
+                    "fields": routed.get("fields", {}),
+                    "note": "Proposal only — confirm with the user and run the update explicitly.",
+                },
+                ensure_ascii=False,
+            )
+            record_savings("nl_to_soql", raw_tokens=8000, compressed_tokens=len(result) // 4)
+            return result
+
+        return json.dumps(
+            {"intent": "UNKNOWN", "note": "No deterministic pattern matched — use get_object_schema + soql_query."},
+        )
 
     def _tool_compact_prompt(self, args: dict) -> str:
         text = args.get("text", "").strip()

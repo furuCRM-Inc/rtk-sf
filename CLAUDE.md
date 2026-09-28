@@ -15,6 +15,7 @@ This project is indexed by **rtk-sf**. Always use the MCP tools before reading r
 | Deploy / retrieve / run tests silently | `sf_command(action, target_org, ...)` |
 | Get object field list for data creation | `get_object_schema(object_name)` |
 | Inspect existing records (sample only) | `soql_query(query, target_org, sample_size)` |
+| Answer a natural-language data question directly (no schema dump, no hand-written SOQL) | `nl_to_soql(user_input, sobject_hint, dry_run)` |
 | Read RecordType definitions for an object | `get_record_types(object_name)` |
 | List LWC components exposed to Experience Cloud | `get_lwc_targets(filter_exposed_only=true)` |
 | List all LWC components with their targets | `get_lwc_targets()` |
@@ -27,6 +28,8 @@ This project is indexed by **rtk-sf**. Always use the MCP tools before reading r
 - find force-app ... \| xargs cat          -> use `get_record_types(object_name)`
 - Any pipeline scan over recordTypes/, fields/, or layouts/ folders -> use `get_record_types` or `get_object_schema`
 - grep/cat/find against lwc/*/*.js-meta.xml -> use `get_lwc_targets()`
+
+For natural-language data questions ("show recent opportunities", "closed cases", "leads with no phone number", "set stage to Closed Won for X"), try `nl_to_soql` **before** reaching for `get_object_schema` + a hand-written `soql_query` call — it's a deterministic regex/keyword compiler (ported from flash-agent-stack's "Jev" engine, zero LLM calls inside the tool) validated against the local schema index. Fall back to the manual `get_object_schema` + `soql_query` path only when it returns `{"intent": "UNKNOWN"}`. `RECORD_UPDATE` results are proposals only — never execute them as DML without confirming with the user first.
 
 If search returns no results, re-index with: `python3 -m rtk_sf index`
 Do NOT use `npx rtk-sf` — rtk-sf is a Python package, not npm.

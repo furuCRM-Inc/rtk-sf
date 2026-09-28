@@ -50,20 +50,18 @@ _OMIT_FIELD_ATTRS = {
 # Feature 1: Mock Schema Injection
 # ---------------------------------------------------------------------------
 
-def get_object_schema(object_name: str, rtk_dir: Path) -> str:
+def load_object_field_rows(object_name: str, rtk_dir: Path) -> tuple[str, str, list[dict[str, Any]]] | str:
     """
-    Return a compact data-generation profile for a Salesforce object.
+    Resolve an object name against the local .rtk-sf/specs/ YAML index and
+    return its label and compact field rows (name/type/required/referenceTo/picklist).
 
-    Reads from the local .rtk-sf/specs/ YAML index — no org call needed.
-    Output includes only what Claude needs to generate or modify records:
-    field API name, data type, required flag, and picklist values.
-
-    Args:
-        object_name: e.g. "Order__c" or "Account"
-        rtk_dir:     Path to .rtk-sf directory
+    Shared by get_object_schema() (renders these rows as a YAML profile) and
+    soql_compiler.py (consumes them directly as valid_fields/field_types for
+    schema-validated query compilation) — one spec-loading path for both.
 
     Returns:
-        YAML string — the data-generation profile, or an error message.
+        (resolved_object_name, label, field_rows) on success, or an error
+        message string (same messages get_object_schema has always returned).
     """
     spec_file = rtk_dir / "specs" / f"{object_name}.yaml"
     if not spec_file.exists():
@@ -111,9 +109,32 @@ def get_object_schema(object_name: str, rtk_dir: Path) -> str:
     if not field_rows:
         return f"No field data found for '{object_name}' in local index."
 
+    return object_name, raw.get("label", object_name), field_rows
+
+
+def get_object_schema(object_name: str, rtk_dir: Path) -> str:
+    """
+    Return a compact data-generation profile for a Salesforce object.
+
+    Reads from the local .rtk-sf/specs/ YAML index — no org call needed.
+    Output includes only what Claude needs to generate or modify records:
+    field API name, data type, required flag, and picklist values.
+
+    Args:
+        object_name: e.g. "Order__c" or "Account"
+        rtk_dir:     Path to .rtk-sf directory
+
+    Returns:
+        YAML string — the data-generation profile, or an error message.
+    """
+    resolved = load_object_field_rows(object_name, rtk_dir)
+    if isinstance(resolved, str):
+        return resolved
+    object_name, label, field_rows = resolved
+
     profile: dict[str, Any] = {
         "object": object_name,
-        "label": raw.get("label", object_name),
+        "label": label,
         "source": "rtk-sf local index (no org call)",
         "fields": field_rows,
     }

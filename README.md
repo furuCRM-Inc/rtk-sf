@@ -3,7 +3,7 @@
 **Multi-Language Token Reduction Framework for Enterprise AI Agents**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.8.0-brightgreen)](https://github.com/furuCRM-Inc/rtk-sf/releases)
+[![Version](https://img.shields.io/badge/version-0.9.0-brightgreen)](https://github.com/furuCRM-Inc/rtk-sf/releases)
 [![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue)](https://python.org)
 [![MCP Compatible](https://img.shields.io/badge/MCP-Compatible-green)](https://modelcontextprotocol.io)
 [![furuCRM](https://img.shields.io/badge/by-furuCRM%20Inc.-0066cc)](https://www.furucrm.com)
@@ -12,7 +12,7 @@
 
 rtk-sf started as a Salesforce token-reduction tool and has grown into a **full multi-language framework**. It indexes your codebase, compresses class structure into structural skeletons, and serves everything via MCP stdio — so Claude Code reads 150 tokens instead of 15,000.
 
-**v0.8.0** adds Java support alongside Python, TypeScript, and Kotlin — covering the full enterprise stack.
+**v0.8.0** adds Java support alongside Python, TypeScript, and Kotlin — covering the full enterprise stack. **v0.9.0** adds `nl_to_soql` — a deterministic natural-language-to-SOQL compiler ported from flash-agent-stack's Jev engine — plus indexer field-type and schema-validation fixes.
 
 ---
 

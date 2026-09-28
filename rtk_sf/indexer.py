@@ -720,6 +720,15 @@ def _build_apex_trigger_spec(parsed: dict[str, Any], file_path: Path) -> str:
 def _build_field_spec(name: str, parsed: dict[str, Any], file_path: Path) -> str:
     """Convert parsed field data into a compressed YAML spec string."""
     spec = {k: v for k, v in parsed.items() if v}
+    # Preserve the real Salesforce field type (Currency, Picklist, ...) under
+    # field_type before "type" is overwritten below with the component kind
+    # ("CustomField") — data_tools.py's _compact_field_from_spec reads
+    # field_type first for exactly this reason. Previously this line
+    # silently clobbered the real type with the literal string "CustomField"
+    # for every field spec ever written, so get_object_schema (and anything
+    # built on it) never saw actual field types.
+    if "type" in spec:
+        spec["field_type"] = spec.pop("type")
     spec["component"] = name
     spec["type"] = "CustomField"
     spec["file"] = str(file_path.name)

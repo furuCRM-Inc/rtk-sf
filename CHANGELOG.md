@@ -19,6 +19,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.0] — 2026-09-28
+
+### Added
+
+**`nl_to_soql` MCP tool (`rtk_sf/soql_compiler.py`)**
+- Deterministic natural-language-to-SOQL compiler ported from furuCRM-Inc/flash-agent-stack's
+  "Jev" engine, keeping only the fully LLM-free layer: regex/keyword extraction of filter
+  conditions (dates incl. compound 億/千万/万 numerals, amounts, stage/case/lead status,
+  null-checks, parent-account context, simple record updates) plus a schema-validated
+  SOQL/SOSL compiler (quote-escaping, LIMIT clamping, `WITH USER_MODE`, graceful degrade
+  when a field isn't locally indexed).
+- `RECORD_UPDATE` matches are always returned as a proposal, never auto-executed as DML.
+- 56 unit tests in `tests/test_soql_compiler.py`, ported from the source engine's own
+  `jev-intent.test.ts` / `soqlCompiler.test.ts` cases to pin parity.
+
+### Fixed
+
+- **Indexer**: `_build_field_spec` was overwriting every field's real Salesforce type
+  (Currency, Picklist, DateTime, ...) with the literal string `"CustomField"` before
+  writing the YAML spec, so `get_object_schema` (and anything built on it) never saw
+  actual field types. The real type is now preserved under `field_type`.
+- **Schema validation**: fields guaranteed to exist on an object but never individually
+  customized (Id, Name, CreatedDate, OwnerId, and common per-object standard fields like
+  Opportunity.Amount / Account.AnnualRevenue) have no field-meta.xml of their own and were
+  invisible to the local index's `valid_fields`, so conditions built on them — including
+  `nl_to_soql`'s own "recent records" default filter — were silently dropped by schema
+  validation. `soql_compiler.with_standard_fields()` now unions in a conservative,
+  per-object allowlist before validating.
+
+### Changed
+
+- `data_tools.get_object_schema` refactored to share its spec-loading logic via the new
+  `load_object_field_rows()`, reused directly by `nl_to_soql` for field validation.
+- Root `CLAUDE.md` documents `nl_to_soql` and when to prefer it over a hand-written
+  `soql_query` call.
+
+---
+
 ## [0.1.0] — 2026-09-06
 
 ### Added
