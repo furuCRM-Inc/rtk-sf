@@ -340,37 +340,44 @@ rtk_sf/
 
 ## Installation Options
 
+> **Not yet published on PyPI** — install straight from GitHub (see the "when available" note in Quick Start). `pip install rtk-sf` will not find it.
+
 ```bash
 # Salesforce only (minimal)
-pip install rtk-sf
+pip install "rtk-sf @ git+https://github.com/furuCRM-Inc/rtk-sf.git"
 
 # Add vector search
-pip install "rtk-sf[vector]"
+pip install "rtk-sf[vector] @ git+https://github.com/furuCRM-Inc/rtk-sf.git"
 
 # Add OCR (PaddleOCR)
-pip install "rtk-sf[ocr]"
+pip install "rtk-sf[ocr] @ git+https://github.com/furuCRM-Inc/rtk-sf.git"
 
 # Add OCR fallback (EasyOCR)
-pip install "rtk-sf[ocr-fallback]"
+pip install "rtk-sf[ocr-fallback] @ git+https://github.com/furuCRM-Inc/rtk-sf.git"
 
 # Everything
-pip install "rtk-sf[all]"
+pip install "rtk-sf[all] @ git+https://github.com/furuCRM-Inc/rtk-sf.git"
 ```
 
 All language tracks (Java, Kotlin, TypeScript, Python) are included in the base install — no extra dependencies needed.
 
 ### Upgrading
 
+Because rtk-sf is installed straight from git rather than PyPI, `pip install --upgrade rtk-sf` alone will report "Requirement already satisfied" without checking GitHub for newer commits — pip only re-resolves a VCS install when forced to.
+
 ```bash
-# Standard install
-pip install --upgrade rtk-sf
+# Pin to a specific release (recommended — matches what CHANGELOG.md/Releases describe)
+pip install --upgrade --force-reinstall --no-deps "rtk-sf @ git+https://github.com/furuCRM-Inc/rtk-sf.git@v0.9.0"
+
+# Or track main's latest commit
+pip install --upgrade --force-reinstall --no-deps "rtk-sf @ git+https://github.com/furuCRM-Inc/rtk-sf.git"
 
 # Editable/dev install (tracks a local clone of this repo directly —
 # no reinstall needed after future changes)
 pip install -e /path/to/rtk-sf --no-deps
 ```
 
-Check `rtk-sf --version` (or the `serverInfo.version` field in the MCP `initialize` response) to confirm which version an already-registered MCP server is actually running — a server started with a bare `python3 -m rtk_sf serve` picks up whatever `rtk_sf` package the invoking `python3` resolves on `PATH`, which can silently differ from the copy you just edited or upgraded if more than one Python environment has it installed.
+Check `rtk-sf --version` (or the `serverInfo.version` field in the MCP `initialize` response) to confirm which version an already-registered MCP server is actually running — a server started with a bare `python3 -m rtk_sf serve` picks up whatever `rtk_sf` package the invoking `python3` resolves on `PATH`, which can silently differ from the copy you just upgraded if more than one Python environment has it installed.
 
 ---
 
