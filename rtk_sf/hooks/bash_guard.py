@@ -14,8 +14,12 @@ appropriate MCP tool instead.
 
 Claude Code hook protocol:
   stdin : JSON {"tool_name": "Bash", "tool_input": {"command": "..."}, ...}
-  exit 0: allow the command to run normally
-  exit 2: block — stdout text is shown to Claude as the tool result instead
+  allow : exit 0 with no output
+  block : exit 0 with a JSON permissionDecision of "deny" on stdout
+
+Exit 2 takes its message from stderr, so a block written to stdout is discarded
+and surfaces as "hook error: No stderr output". The structured JSON form below
+delivers the redirect message to Claude intact.
 """
 
 from __future__ import annotations
@@ -98,6 +102,29 @@ def _extract_object_hint(command: str) -> str:
     return m.group(1) if m else ""
 
 
+def _deny(reason: str) -> None:
+    """
+    Block the tool call the way Claude Code documents it.
+
+    Exit 2 would also block, but its message is taken from stderr; text written
+    to stdout is discarded and the user sees "hook error: No stderr output".
+    The JSON form below reaches Claude intact, so the redirect to the MCP tool
+    is actually read.
+    """
+    sys.stdout.write(
+        json.dumps(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": reason,
+                }
+            }
+        )
+    )
+    sys.exit(0)
+
+
 def main() -> None:
     try:
         data = json.loads(sys.stdin.read() or "{}")
@@ -116,7 +143,7 @@ def main() -> None:
         except Exception:
             pass
 
-        sys.stdout.write(
+        _deny(
             "[rtk-sf] Blocked raw LWC metadata scan targeting *.js-meta.xml files.\n"
             "Reading these XML files directly would flood the context window with dense\n"
             "declarative markup (<targetConfigs>, property definitions, etc.).\n\n"
@@ -125,9 +152,8 @@ def main() -> None:
             "  get_lwc_targets(filter_exposed_only=true)  — only Experience Cloud-exposed ones\n\n"
             "This returns a 3-line summary per component "
             "(component name, isExposed boolean, clean target list) "
-            "instead of raw XML. Token savings: ~50x.\n"
+            "instead of raw XML. Token savings: ~50x."
         )
-        sys.exit(2)
 
     # --- Declarative metadata folder pipeline check ---
     dangerous, matched_folder = _is_metadata_pipeline(command)
@@ -147,7 +173,7 @@ def main() -> None:
     except Exception:
         pass
 
-    sys.stdout.write(
+    _deny(
         f"[rtk-sf] Blocked raw metadata pipeline scan targeting '{matched_folder}/' folder.\n"
         f"Reading multiple XML files this way would flood the context window with thousands "
         f"of tokens of declarative Salesforce markup.\n\n"
@@ -155,9 +181,8 @@ def main() -> None:
         f"  {call_hint}\n\n"
         f"This returns a compressed 5-line summary per record type "
         f"(FullName, Label, Active, tracked picklist names) "
-        f"instead of raw XML. Request specific picklist values only if you need to mutate them.\n"
+        f"instead of raw XML. Request specific picklist values only if you need to mutate them."
     )
-    sys.exit(2)
 
 
 if __name__ == "__main__":
