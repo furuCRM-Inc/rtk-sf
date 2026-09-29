@@ -19,6 +19,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.10.1] — 2026-09-29
+
+### Fixed
+
+**Hooks could not deliver their message, and could break the tool call**
+
+Both `PreToolUse` hooks blocked with exit 2 and wrote the message to stdout. Claude
+Code takes an exit-2 blocking message from **stderr**, so the text was discarded and
+the user saw only `hook error: No stderr output`:
+
+- `bash_guard` blocked metadata pipeline scans without ever showing which MCP tool
+  to use instead — the redirect that is the hook's entire purpose.
+- `ocr_intercept` blocked the Read without returning the OCR text.
+
+Both now use the documented structured form: exit 0 with a `permissionDecision` of
+`deny` on stdout, whose `permissionDecisionReason` reaches Claude intact.
+
+**A noisy OCR stack made images unreadable**
+
+`ocr_intercept` let PaddleOCR and torch write model-loading notices and
+`UserWarning`s to stderr — some from native code, which `redirect_stderr` cannot
+catch. Any stderr output is reported as a hook error, so on a machine where the OCR
+engine fails to initialise, reading *any* image failed. The OCR call now runs with
+file descriptors 1 and 2 pointed at /dev/null, and an empty transcription falls back
+to the native Read instead of returning nothing.
+
+### Added
+
+- `tests/test_hooks_ocr_intercept.py` and `tests/test_hooks_bash_guard.py` (14 tests)
+  pin the protocol: allow paths stay silent, blocks carry their reason, engine noise
+  never reaches stderr, and a failing engine falls back rather than breaking the Read.
+
+---
+
 ## [0.10.0] — 2026-09-29
 
 ### Added
