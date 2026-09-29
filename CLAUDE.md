@@ -19,6 +19,8 @@ This project is indexed by **rtk-sf**. Always use the MCP tools before reading r
 | Read RecordType definitions for an object | `get_record_types(object_name)` |
 | List LWC components exposed to Experience Cloud | `get_lwc_targets(filter_exposed_only=true)` |
 | List all LWC components with their targets | `get_lwc_targets()` |
+| Generate system docs / sequence diagrams / use cases (written to disk) | `export_system_documentation(doc_type, output_dir)` |
+| Ask what has been worked on recently | `get_project_timeline(scope)` |
 
 **Never** do these directly — use the tool instead:
 - Read a raw .cls file                    -> use `get_class_skeleton`
@@ -28,6 +30,8 @@ This project is indexed by **rtk-sf**. Always use the MCP tools before reading r
 - find force-app ... \| xargs cat          -> use `get_record_types(object_name)`
 - Any pipeline scan over recordTypes/, fields/, or layouts/ folders -> use `get_record_types` or `get_object_schema`
 - grep/cat/find against lwc/*/*.js-meta.xml -> use `get_lwc_targets()`
+- Hand-writing architecture docs or sequence diagrams -> use `export_system_documentation`
+- Reading git log to reconstruct recent work -> use `get_project_timeline`
 
 For natural-language data questions ("show recent opportunities", "closed cases", "leads with no phone number", "set stage to Closed Won for X"), try `nl_to_soql` **before** reaching for `get_object_schema` + a hand-written `soql_query` call — it's a deterministic regex/keyword compiler (ported from flash-agent-stack's "Jev" engine, zero LLM calls inside the tool) validated against the local schema index. Fall back to the manual `get_object_schema` + `soql_query` path only when it returns `{"intent": "UNKNOWN"}`. `RECORD_UPDATE` results are proposals only — never execute them as DML without confirming with the user first.
 

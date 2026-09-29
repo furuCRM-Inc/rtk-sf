@@ -20,6 +20,8 @@ Tools exposed:
     validate_soql(query)                        → local SOQL dry-run check (v0.5.0)
     get_roi_stats()                             → session token/dollar savings report (v0.5.0)
     extract_image_text(image_path)             → local OCR — bypasses vision tokens (v0.5.0)
+    export_system_documentation(doc_type, ..)  → system docs + diagrams to disk (v0.10.0)
+    get_project_timeline(scope)                → living-memory project history (v0.10.0)
 
 Protocol:
     - Reads JSON-RPC 2.0 requests line-by-line from stdin.
@@ -889,6 +891,72 @@ _TOOLS: list[dict[str, Any]] = [
             "required": ["component_name", "key", "value"],
         },
     },
+    {
+        "name": "export_system_documentation",
+        "description": (
+            "Compile system documentation, sequence diagrams and use cases directly to disk. "
+            "Reads the rtk-sf index plus the source files it points at, writes Markdown/Mermaid "
+            "files, and returns only a short confirmation — the document body never enters the "
+            "context window. Use doc_type='all' for the full set."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "doc_type": {
+                    "type": "string",
+                    "description": "The system document or diagram set to generate.",
+                    "enum": [
+                        "function_matrix",
+                        "function_usecases",
+                        "sequence_diagrams",
+                        "business_scenarios",
+                        "object_definitions",
+                        "metadata_inventory",
+                        "screen_list",
+                        "erd",
+                        "system_doc",
+                        "all",
+                    ],
+                },
+                "output_dir": {
+                    "type": "string",
+                    "description": (
+                        "Destination directory for Markdown/Mermaid output. Relative paths "
+                        "resolve against the project root."
+                    ),
+                    "default": "./docs",
+                },
+            },
+            "required": ["doc_type"],
+        },
+    },
+    {
+        "name": "get_project_timeline",
+        "description": (
+            "Read the living-memory project history (.rtk-sf/history.json) for one time scope. "
+            "Buckets roll up automatically: full-detail turns for 72 hours, then per-day, "
+            "per-quarter and per-fiscal-year summaries. 'last_7_days' returns a zero-filled "
+            "per-day series suitable for charting."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "scope": {
+                    "type": "string",
+                    "description": "Time bucket to read.",
+                    "enum": [
+                        "recent_3_days",
+                        "last_7_days",
+                        "current_month",
+                        "fiscal_quarters",
+                        "fiscal_years",
+                        "all",
+                    ],
+                    "default": "recent_3_days",
+                },
+            },
+        },
+    },
 ]
 
 
@@ -1025,6 +1093,10 @@ class MCPServer:
                 result = self._tool_run_python_tests(arguments)
             elif tool_name == "read_data_file":
                 result = self._tool_read_data_file(arguments)
+            elif tool_name == "export_system_documentation":
+                result = self._tool_export_documentation(arguments)
+            elif tool_name == "get_project_timeline":
+                result = self._tool_get_project_timeline(arguments)
             else:
                 self._write(self._error(request_id, -32601, f"Unknown tool: {tool_name}"))
                 return
@@ -1325,6 +1397,37 @@ class MCPServer:
 
         run_args = {k: v for k, v in args.items() if k != "action"}
         return run_sf_command(action, run_args)
+
+    def _tool_export_documentation(self, args: dict) -> str:
+        doc_type = args.get("doc_type", "").strip()
+        if not doc_type:
+            return "Error: doc_type is required."
+
+        output_dir = args.get("output_dir") or "docs"
+        from rtk_sf.docgen import export_documentation
+
+        return export_documentation(
+            doc_type=doc_type,
+            output_dir=output_dir,
+            project_root=self.project_root,
+        )
+
+    def _tool_get_project_timeline(self, args: dict) -> str:
+        scope = (args.get("scope") or "recent_3_days").strip()
+        from rtk_sf.memory import HistoryManager
+
+        manager = HistoryManager(self.project_root)
+        if not manager.path.exists():
+            return (
+                "No project history yet. Install the living-memory hooks so turns are "
+                "recorded: python3 -m rtk_sf.hooks.memory_post_turn (Stop hook)."
+            )
+        try:
+            data = manager.timeline(scope)
+        except ValueError as exc:
+            return f"Error: {exc}"
+        manager.save()  # persist any roll-up the read triggered
+        return json.dumps(data, ensure_ascii=False, indent=2)
 
     def _tool_search(self, args: dict) -> str:
         query = args.get("query", "").strip()
