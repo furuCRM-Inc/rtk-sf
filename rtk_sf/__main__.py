@@ -130,6 +130,8 @@ Do NOT use `npx rtk-sf` — rtk-sf is a Python package, not npm.
 
 _OCR_MODULE = "rtk_sf.hooks.ocr_intercept"
 _COMPACT_MODULE = "rtk_sf.hooks.compact_prompt"
+_MEMORY_PRE_MODULE = "rtk_sf.hooks.memory_pre_turn"
+_MEMORY_POST_MODULE = "rtk_sf.hooks.memory_post_turn"
 
 
 def _make_hook_cmd(module: str) -> str:
@@ -148,6 +150,8 @@ def _patch_claude_settings(project_root: Path) -> None:
 
     ocr_cmd = _make_hook_cmd(_OCR_MODULE)
     compact_cmd = _make_hook_cmd(_COMPACT_MODULE)
+    memory_pre_cmd = _make_hook_cmd(_MEMORY_PRE_MODULE)
+    memory_post_cmd = _make_hook_cmd(_MEMORY_POST_MODULE)
 
     settings_path = project_root / ".claude" / "settings.json"
     settings_path.parent.mkdir(parents=True, exist_ok=True)
@@ -217,9 +221,38 @@ def _patch_claude_settings(project_root: Path) -> None:
         })
         changed = True
 
+    # UserPromptSubmit → living-memory digest.
+    # A second UserPromptSubmit hook is safe alongside the compactor: this one
+    # returns additionalContext rather than rewriting the prompt.
+    existing_mem_pre, mem_pre_changed = _find_and_dedupe(
+        "UserPromptSubmit", _MEMORY_PRE_MODULE, memory_pre_cmd
+    )
+    changed |= mem_pre_changed
+    if existing_mem_pre is None:
+        hooks.setdefault("UserPromptSubmit", []).append({
+            "matcher": "",
+            "hooks": [{"type": "command", "command": memory_pre_cmd}],
+        })
+        changed = True
+
+    # Stop → record the turn's git delta into the living memory
+    existing_mem_post, mem_post_changed = _find_and_dedupe(
+        "Stop", _MEMORY_POST_MODULE, memory_post_cmd
+    )
+    changed |= mem_post_changed
+    if existing_mem_post is None:
+        hooks.setdefault("Stop", []).append({
+            "matcher": "",
+            "hooks": [{"type": "command", "command": memory_post_cmd}],
+        })
+        changed = True
+
     if changed:
         settings_path.write_text(_json.dumps(config, indent=2), encoding="utf-8")
-        _success(".claude/settings.json updated with rtk-sf hooks (OCR intercept + prompt compactor).")
+        _success(
+            ".claude/settings.json updated with rtk-sf hooks "
+            "(OCR intercept, prompt compactor, living memory)."
+        )
     else:
         _success(".claude/settings.json already has rtk-sf hooks. Skipping.")
 
@@ -476,6 +509,41 @@ def cmd_ui(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_docs(args: argparse.Namespace) -> int:
+    """Generate system documentation and diagrams to disk."""
+    from rtk_sf.docgen import export_documentation
+
+    project_root = Path(args.project_root).resolve()
+    result = export_documentation(
+        doc_type=args.doc_type,
+        output_dir=args.output_dir,
+        project_root=project_root,
+    )
+    print(result)
+    return 1 if result.startswith("\u274c") else 0
+
+
+def cmd_timeline(args: argparse.Namespace) -> int:
+    """Print the living-memory project timeline for one scope."""
+    import json as _json
+
+    from rtk_sf.memory import HistoryManager
+
+    manager = HistoryManager(Path(args.project_root).resolve())
+    if not manager.path.exists():
+        _warn("No project history yet.")
+        _info("Record turns by installing the Stop hook: python3 -m rtk_sf.hooks.memory_post_turn")
+        return 0
+    try:
+        data = manager.timeline(args.scope)
+    except ValueError as exc:
+        _warn(str(exc))
+        return 1
+    manager.save()
+    print(_json.dumps(data, ensure_ascii=False, indent=2))
+    return 0
+
+
 def cmd_hook_stats(args: argparse.Namespace) -> int:
     """Show recent hook activity from ~/.rtk-sf-hooks.log."""
     from pathlib import Path as _Path
@@ -540,6 +608,9 @@ Examples:
   rtk-sf index --path ./src           # Index custom source path
   rtk-sf watch                        # Watch ./force-app for changes
   rtk-sf serve                        # Start MCP server (for Claude Code)
+  rtk-sf docs                         # Generate the full document set to docs/
+  rtk-sf docs sequence_diagrams       # One document only
+  rtk-sf timeline last_7_days         # Living-memory weekly time series
   rtk-sf ui                           # Generate architecture_map.html
   rtk-sf ui --output ~/Desktop/map.html
 
@@ -622,6 +693,56 @@ Built by furuCRM Inc. — https://www.furucrm.com
         help="Output HTML path (default: dist/architecture_map.html)",
     )
     p_ui.set_defaults(func=cmd_ui)
+
+    # docs
+    p_docs = subparsers.add_parser(
+        "docs", help="Generate system documentation and diagrams to disk"
+    )
+    p_docs.add_argument(
+        "doc_type",
+        nargs="?",
+        default="all",
+        choices=[
+            "function_matrix",
+            "function_usecases",
+            "sequence_diagrams",
+            "business_scenarios",
+            "object_definitions",
+            "metadata_inventory",
+            "screen_list",
+            "erd",
+            "system_doc",
+            "all",
+        ],
+        help="Document to generate (default: all)",
+    )
+    p_docs.add_argument(
+        "--output-dir",
+        metavar="DIR",
+        default="docs",
+        help="Destination directory (default: docs)",
+    )
+    p_docs.set_defaults(func=cmd_docs)
+
+    # timeline
+    p_timeline = subparsers.add_parser(
+        "timeline", help="Print the living-memory project timeline as JSON"
+    )
+    p_timeline.add_argument(
+        "scope",
+        nargs="?",
+        default="recent_3_days",
+        choices=[
+            "recent_3_days",
+            "last_7_days",
+            "current_month",
+            "fiscal_quarters",
+            "fiscal_years",
+            "all",
+        ],
+        help="Time bucket to read (default: recent_3_days)",
+    )
+    p_timeline.set_defaults(func=cmd_timeline)
 
     # hook-stats
     p_stats = subparsers.add_parser(

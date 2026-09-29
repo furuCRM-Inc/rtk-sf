@@ -235,9 +235,9 @@ rtk-sf automatically routes to the correct track based on file extension or CLI 
 
 ---
 
-## MCP Tools Reference (24 tools)
+## MCP Tools Reference (26 tools)
 
-### Salesforce (15 tools)
+### Salesforce (17 tools)
 
 | Tool | Description |
 |---|---|
@@ -256,6 +256,8 @@ rtk-sf automatically routes to the correct track based on file extension or CLI 
 | `get_roi_stats` | Token/cost savings report for this session |
 | `extract_image_text` | OCR text extraction from a screenshot or image |
 | `annotate_component` | Write business-logic annotations back to the index |
+| `export_system_documentation` | **(v0.10.0)** Compile the system document set — function matrix, use cases, Mermaid sequence diagrams, business scenarios, object definitions, metadata inventory, screen list, ERD — straight to disk; only a one-line confirmation returns to the agent |
+| `get_project_timeline` | **(v0.10.0)** Read the living-memory project history for one scope (`recent_3_days`, `last_7_days`, `current_month`, `fiscal_quarters`, `fiscal_years`, `all`) |
 
 ### Java (2 tools)
 
@@ -309,9 +311,9 @@ rtk-sf automatically routes to the correct track based on file extension or CLI 
 
 ```
 rtk_sf/
-├── __init__.py               # Package root (v0.8.0)
+├── __init__.py               # Package root (v0.10.0)
 ├── __main__.py               # CLI entry point
-├── mcp_server.py             # MCP stdio server — all 23 tools
+├── mcp_server.py             # MCP stdio server — all 26 tools
 ├── core_router.py            # Language detection router
 ├── indexer.py                # Salesforce DX project indexer
 ├── search.py                 # Keyword + semantic search
@@ -319,6 +321,21 @@ rtk_sf/
 ├── sf_runner.py              # Salesforce CLI wrapper
 ├── data_tools.py             # CSV/JSON/YAML reader
 ├── nlp_compactor.py          # Prompt NLP compressor
+├── docgen/                   # Documentation engine (v0.10.0)
+│   ├── extract.py            # Behavioral facts: annotations, DML, security, LWC/Redux wiring
+│   ├── render.py             # Markdown/Mermaid helpers (no template engine)
+│   ├── function_matrix.py    # docs/FUNCTION_MATRIX.md
+│   ├── function_usecases.py  # docs/FUNCTION_USECASES.md
+│   ├── sequence_diagrams.py  # docs/SEQUENCE_DIAGRAMS.md
+│   ├── business_scenarios.py # docs/BUSINESS_SCENARIOS.md
+│   ├── object_definitions.py # docs/OBJECT_DEFINITIONS.md
+│   ├── metadata_inventory.py # docs/METADATA_INVENTORY.md
+│   ├── screen_list.py        # docs/SCREEN_LIST.md
+│   ├── erd.py                # docs/ERD.mmd
+│   └── system_doc.py         # docs/SYSTEM_DOCUMENT.md
+├── memory/                   # Living memory (v0.10.0)
+│   ├── history.py            # .rtk-sf/history.json + roll-up cascade
+│   └── time_utils.py         # Fiscal-aware time bucketing
 ├── java/
 │   ├── java_skeletonizer.py  # Java structural skeleton (getter/setter detection)
 │   └── build_masker.py       # Maven + Gradle output compactor
@@ -332,8 +349,11 @@ rtk_sf/
 │   ├── ast_skeletonizer.py   # Python AST skeleton (dataclasses, type hints)
 │   └── pytest_masker.py      # pytest output compactor
 └── hooks/
-    ├── compact_prompt.py     # Pre-submit hook: NLP compress prompts
-    └── ocr_intercept.py      # Pre-submit hook: OCR image → text
+    ├── compact_prompt.py     # UserPromptSubmit: NLP compress prompts
+    ├── ocr_intercept.py      # PreToolUse[Read]: OCR image → text
+    ├── bash_guard.py         # PreToolUse[Bash]: block metadata pipeline scans
+    ├── memory_pre_turn.py    # UserPromptSubmit: inject 72h memory digest (v0.10.0)
+    └── memory_post_turn.py   # Stop: record the turn's git delta (v0.10.0)
 ```
 
 ---

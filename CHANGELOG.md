@@ -19,6 +19,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.10.0] — 2026-09-29
+
+### Added
+
+**Living memory (`rtk_sf/memory/`)**
+- `.rtk-sf/history.json` with a self-compacting bucket cascade: full-detail turn events for
+  72 hours → per-day summaries → per-fiscal-quarter → per-fiscal-year. Writing an event
+  triggers the roll-up, so the file never grows without bound.
+- Fiscal-aware bucketing (`time_utils.py`), defaulting to an April fiscal-year start
+  (Japanese convention) and configurable per project; the start month is recorded in the
+  file so buckets stay consistent across runs.
+- `last_7_days`: a derived, zero-filled per-day time series. Day summaries inside the
+  trailing week are retained at day granularity even after the calendar month turns over,
+  so "what happened last week" stays answerable on the 1st of a month.
+- Atomic writes, and defensive reads: a missing or corrupt history file yields an empty
+  store rather than raising, because this runs inside hooks that must not break a turn.
+
+**Documentation engine (`rtk_sf/docgen/`)**
+- `export_system_documentation(doc_type, output_dir)` MCP tool and `rtk-sf docs` CLI command,
+  writing Markdown/Mermaid directly to disk and returning only a one-line confirmation —
+  the document body never enters the agent's context window.
+- Nine generators: `FUNCTION_MATRIX.md`, `FUNCTION_USECASES.md`, `SEQUENCE_DIAGRAMS.md`,
+  `BUSINESS_SCENARIOS.md`, `OBJECT_DEFINITIONS.md`, `METADATA_INVENTORY.md`,
+  `SCREEN_LIST.md`, `ERD.mmd`, `SYSTEM_DOCUMENT.md`.
+- `extract.py` derives what the YAML spec index does not carry: Apex annotations
+  (`@AuraEnabled`, `cacheable`, `@InvocableMethod`, REST), per-method DML/SOQL with the
+  resolved sObject and access mode (`as user`, `WITH USER_MODE`, `WITH SECURITY_ENFORCED`),
+  CRUD/FLS checks, thrown exceptions, call graphs, LWC→Apex imports, `@wire` adapters,
+  published/handled events, and Redux Toolkit `createSlice`/`createAsyncThunk`/`createApi`
+  constructs — Redux lives outside the metadata index entirely and is scanned directly.
+- Apex attribution is scoped per construct: a file importing several Apex methods no longer
+  credits all of them to every thunk and endpoint in that file.
+- Facts that cannot be derived are marked `_undetermined_`, and facts positively established
+  as absent render as `—`. Nothing is invented to fill a section.
+- `get_project_timeline(scope)` MCP tool and `rtk-sf timeline` CLI command.
+
+**Hooks**
+- `memory_pre_turn.py` (UserPromptSubmit) injects a ≤150-token digest of the last 72 hours as
+  `additionalContext`, so it composes with `compact_prompt` instead of fighting it over the
+  prompt body.
+- `memory_post_turn.py` (Stop) records the turn's git delta, keeping a per-file snapshot in
+  the history so repeated turns do not re-log the same cumulative diff; a turn that changed
+  nothing writes nothing.
+- `rtk-sf install` now wires both, merging into `.claude/settings.json` idempotently.
+
+### Notes
+- The design for this release specified TypeScript modules under `src/mcp/` with Handlebars
+  templates. rtk-sf is a Python package whose MCP server is Python, so the same design is
+  implemented in Python under `rtk_sf/`; documents are assembled with plain string building
+  to avoid adding a template-engine dependency.
+
+---
+
 ## [0.9.0] — 2026-09-28
 
 ### Added
