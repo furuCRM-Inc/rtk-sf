@@ -174,3 +174,28 @@ Open a [Discussion](https://github.com/furuCRM-Inc/rtk-sf/discussions) or reach 
 ---
 
 Built with love by [furuCRM Inc.](https://www.furucrm.com)
+
+---
+
+## Releasing
+
+The version lives in three places and the upgrade instructions in a fourth. A
+release that updates only the first three ships docs that downgrade the reader
+— which is exactly what happened to the v0.9.0 pin that survived three
+releases (#31).
+
+1. `pyproject.toml` — `version`
+2. `rtk_sf/__init__.py` — `__version__`
+3. `CHANGELOG.md` — a new section, dated, above the previous release
+4. `README.md` — the pinned tag in the `### Upgrading` snippet
+5. Merge, then tag the merge commit and publish the release:
+
+   ```bash
+   git tag -a vX.Y.Z <merge-commit> -m "vX.Y.Z — <summary>"
+   git push origin vX.Y.Z
+   gh release create vX.Y.Z --verify-tag --title "..." --notes-file <notes>
+   ```
+
+Release notes are the CHANGELOG section plus the upgrade command for that tag.
+Mention it when a release adds a dependency: the documented upgrade uses
+`--no-deps`, so readers have to know to drop it.
