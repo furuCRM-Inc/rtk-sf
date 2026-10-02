@@ -22,8 +22,10 @@ import pytest
 
 from rtk_sf.sf_runner import (
     _build_command,
+    _resolve_action,
     _summarize_deploy,
     _summarize_describe,
+    _summarize_describe_object,
     _summarize_retrieve,
     _summarize_run_test,
 )
@@ -273,3 +275,282 @@ def test_describe_truncates_an_overlong_field():
     out = _summarize_describe(data, 1.0)
     assert len(out.splitlines()) == 3
     assert out.rstrip().endswith("…")
+
+
+# ---------------------------------------------------------------------------
+# Per-action argument validation (issue #31, request A)
+#
+# `describe` runs `sf org display`, which has neither --metadata nor
+# --source-dir. Passing them reached the CLI and came back as a bare
+# "Nonexistent flag: --metadata", which never says which action to use.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad_arg", ["metadata", "source_dir", "class_names", "test_level"])
+def test_describe_rejects_arguments_it_cannot_use(bad_arg):
+    with pytest.raises(ValueError) as exc:
+        _build_command("describe", {bad_arg: "X", "target_org": "dev01"})
+    message = str(exc.value)
+    assert bad_arg in message
+    # The message must name where the argument does belong.
+    assert "belongs to" in message
+
+
+def test_rejection_lists_what_the_action_does_accept():
+    with pytest.raises(ValueError) as exc:
+        _build_command("describe", {"metadata": "Application__c"})
+    assert "target_org" in str(exc.value)
+
+
+def test_empty_values_are_not_treated_as_passed():
+    # MCP clients happily send nulls for unset properties.
+    cmd = _build_command("describe", {"metadata": None, "source_dir": "", "target_org": "dev01"})
+    assert cmd[:3] == ["sf", "org", "display"]
+
+
+def test_retrieve_rejects_sobject():
+    with pytest.raises(ValueError):
+        _build_command("retrieve", {"sobject": "Account"})
+
+
+def test_unknown_action_is_reported_with_the_valid_set():
+    with pytest.raises(ValueError) as exc:
+        _build_command("describe_everything", {})
+    assert "describe_object" in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
+# describe_object — one sObject in the live org
+# ---------------------------------------------------------------------------
+
+
+def test_describe_with_sobject_routes_to_describe_object():
+    assert _resolve_action("describe", {"sobject": "Application__c"}) == "describe_object"
+
+
+def test_describe_without_sobject_stays_on_the_org():
+    assert _resolve_action("describe", {"target_org": "dev01"}) == "describe"
+
+
+def test_describe_object_builds_the_sobject_command():
+    cmd = _build_command("describe_object", {"sobject": "Application__c", "target_org": "dev01"})
+    assert cmd[:4] == ["sf", "sobject", "describe", "--json"]
+    assert cmd[cmd.index("--sobject") + 1] == "Application__c"
+
+
+def test_describe_object_without_sobject_explains_itself():
+    with pytest.raises(ValueError) as exc:
+        _build_command("describe_object", {"target_org": "dev01"})
+    assert "sobject" in str(exc.value)
+
+
+_DESCRIBE_OBJECT = {
+    "status": 0,
+    "result": {
+        "name": "Application__c",
+        "label": "申込",
+        "custom": True,
+        "keyPrefix": "a0X",
+        "queryable": True,
+        "createable": True,
+        "updateable": True,
+        "deletable": False,
+        "fields": [
+            {"name": "Id", "custom": False, "nillable": False, "defaultedOnCreate": True},
+            {"name": "StaffNumber__c", "custom": True, "nillable": False, "createable": True},
+            {"name": "BirthDate__c", "custom": True, "nillable": True, "createable": True},
+        ],
+        "recordTypeInfos": [{"available": True}, {"available": False}],
+        "childRelationships": [{"childSObject": "Task"}],
+    },
+}
+
+
+def test_describe_object_summarizes_without_dumping_fields():
+    out = _summarize_describe_object(_DESCRIBE_OBJECT, 1.5)
+    assert out.startswith("✅ Application__c (申込) [custom]")
+    assert "Fields: 3 (2 custom, 1 required)" in out
+    assert "Record types: 1" in out
+    assert "Key prefix: a0X" in out
+    # No field dump — that is what get_object_schema is for.
+    assert "BirthDate__c" not in out
+    assert 'get_object_schema("Application__c")' in out
+
+
+def test_describe_object_reports_only_granted_permissions():
+    out = _summarize_describe_object(_DESCRIBE_OBJECT, 1.0)
+    assert "queryable, createable, updateable" in out
+    assert "deletable" not in out
+
+
+def test_describe_object_surfaces_cli_error():
+    data = {"name": "ERROR_HTTP_420", "message": "HTTP response contains html content.", "status": 1}
+    assert _summarize_describe_object(data, 1.0).startswith("❌")
+
+
+def test_describe_object_flags_an_unrecognised_payload():
+    assert _summarize_describe_object({"status": 0, "result": {"foo": 1}}, 1.0).startswith("⚠️")
+
+
+# ---------------------------------------------------------------------------
+# Apex test results on deploy/validate (issue #31, request C)
+#
+# A validate with RunSpecifiedTests reported only
+# "✅ Succeeded: 2 component(s) in 18.9s" — nothing about whether the tests
+# it was asked to run had run, passed or failed.
+# ---------------------------------------------------------------------------
+
+_TESTS_PASSED = {
+    "status": 0,
+    "result": {
+        "status": "Succeeded",
+        "numberComponentsDeployed": 2,
+        "numberComponentErrors": 0,
+        "numberTestsTotal": 7,
+        "numberTestsCompleted": 7,
+        "numberTestErrors": 0,
+        "runTestsEnabled": True,
+    },
+}
+
+_TESTS_FAILED = {
+    "status": 0,
+    "result": {
+        "status": "Failed",
+        "numberComponentsDeployed": 2,
+        "numberComponentErrors": 0,
+        "numberTestsTotal": 7,
+        "numberTestsCompleted": 5,
+        "numberTestErrors": 2,
+        "runTestsEnabled": True,
+        "details": {
+            "runTestResult": {
+                "numTestsRun": 7,
+                "numFailures": 2,
+                "failures": [
+                    {
+                        "name": "SelfRegistrationControllerTest",
+                        "methodName": "testStaffNumber",
+                        "message": "System.AssertException: Assertion Failed:\nExpected: 1, Actual: 0",
+                    },
+                    {"name": "ApplicationServiceTest", "methodName": "testBirthDate", "message": "List has no rows"},
+                ],
+                "codeCoverageWarnings": [
+                    {"name": "ApplicationService", "message": "Test coverage of selected Apex Class is 62%, at least 75% is required"},
+                ],
+            }
+        },
+    },
+}
+
+
+def test_validate_reports_passing_test_counts():
+    out = _summarize_deploy(_TESTS_PASSED, 18.9)
+    assert "✅ Succeeded: 2 component(s)" in out
+    assert "✅ Tests: 7/7 passed" in out
+
+
+def test_validate_reports_failing_tests_with_names():
+    out = _summarize_deploy(_TESTS_FAILED, 42.0)
+    assert "❌ Tests: 5/7 passed — 2 failed" in out
+    assert "SelfRegistrationControllerTest.testStaffNumber" in out
+    assert "ApplicationServiceTest.testBirthDate" in out
+
+
+def test_failed_deploy_is_not_marked_as_success():
+    # Apex test failures leave numberComponentErrors at 0 but status "Failed".
+    assert _summarize_deploy(_TESTS_FAILED, 42.0).startswith("❌")
+
+
+def test_test_failure_messages_are_one_line_each():
+    out = _summarize_deploy(_TESTS_FAILED, 42.0)
+    failure_line = next(ln for ln in out.splitlines() if "testStaffNumber" in ln)
+    assert "Assertion Failed: Expected: 1, Actual: 0" in failure_line
+
+
+def test_coverage_warnings_are_reported():
+    assert "⚠️ coverage:" in _summarize_deploy(_TESTS_FAILED, 42.0)
+
+
+def test_only_three_test_failures_are_listed():
+    data = {
+        "status": 0,
+        "result": {
+            "status": "Failed",
+            "numberComponentErrors": 0,
+            "numberTestsTotal": 9,
+            "numberTestsCompleted": 4,
+            "numberTestErrors": 5,
+            "details": {
+                "runTestResult": {
+                    "numFailures": 5,
+                    "failures": [
+                        {"name": f"T{i}", "methodName": "m", "message": "boom"} for i in range(5)
+                    ],
+                }
+            },
+        },
+    }
+    out = _summarize_deploy(data, 1.0)
+    assert sum(1 for ln in out.splitlines() if ln.strip().startswith("•")) == 3
+
+
+def test_deploy_without_tests_says_nothing_about_them():
+    data = {
+        "status": 0,
+        "result": {"status": "Succeeded", "numberComponentsDeployed": 3, "numberComponentErrors": 0},
+    }
+    out = _summarize_deploy(data, 4.0)
+    assert "Tests" not in out
+    assert out.startswith("✅")
+
+
+def test_tests_enabled_but_none_ran_is_flagged():
+    data = {
+        "status": 0,
+        "result": {
+            "status": "Succeeded",
+            "numberComponentsDeployed": 1,
+            "numberComponentErrors": 0,
+            "runTestsEnabled": True,
+            "numberTestsTotal": 0,
+        },
+    }
+    assert "none ran" in _summarize_deploy(data, 2.0)
+
+
+def test_component_failures_still_report_tests():
+    data = {
+        "status": 0,
+        "result": {
+            "status": "Failed",
+            "numberComponentErrors": 1,
+            "numberTestsTotal": 3,
+            "numberTestsCompleted": 3,
+            "numberTestErrors": 0,
+            "details": {"componentFailures": [{"componentType": "ApexClass", "fullName": "Foo", "problem": "nope"}]},
+        },
+    }
+    out = _summarize_deploy(data, 5.0)
+    assert "Deploy failed" in out
+    assert "✅ Tests: 3/3 passed" in out
+
+
+def test_describe_drops_wait_instead_of_failing():
+    # `sf org display --wait 10` → "Nonexistent flag: --wait". An MCP client
+    # fills `wait` from the schema default, so failing here would break every
+    # describe call the client makes.
+    cmd = _build_command("describe", {"target_org": "dev01", "wait": 10})
+    assert "--wait" not in cmd
+    assert cmd[:3] == ["sf", "org", "display"]
+
+
+def test_describe_object_drops_wait_instead_of_failing():
+    cmd = _build_command("describe_object", {"sobject": "Account", "wait": 10})
+    assert "--wait" not in cmd
+
+
+@pytest.mark.parametrize("action", ["deploy", "validate", "retrieve", "run_test"])
+def test_long_running_actions_still_accept_wait(action):
+    cmd = _build_command(action, {"wait": 33})
+    assert cmd[cmd.index("--wait") + 1] == "33"

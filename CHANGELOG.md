@@ -19,6 +19,92 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.10.3] — 2026-10-02
+
+Fixes [#31](https://github.com/furuCRM-Inc/rtk-sf/issues/31), the follow-up verification
+of [#28](https://github.com/furuCRM-Inc/rtk-sf/issues/28). The two items confirmed fixed
+in 0.10.2 (`validate` + `class_names`, duplicated skeleton bodies) stay fixed; these are
+the three that were still open, plus one defect found while fixing them.
+
+### Fixed
+
+**`sf_command` answered with raw CLI flag errors (request A)**
+
+`describe` runs `sf org display`, which has no `--metadata` and no `--source-dir`, so
+passing them came back as a bare `Nonexistent flag: --metadata` — no indication of which
+action does take them. Each action now declares the arguments its command actually has:
+
+- a selector the action cannot use (`metadata`, `source_dir`, `class_names`, `test_level`,
+  `sobject`) is refused with the actions it belongs to, before anything is executed;
+- `wait` is *dropped* rather than refused when the command has no `--wait`
+  (`sf org display --wait 10` also fails) — an MCP client fills it from the schema
+  default, so failing the call would be worse than ignoring a number nobody set.
+
+**`describe` could not describe an object (request A)**
+
+The action name reads both ways, so `sobject` is now accepted: `describe` with `sobject`
+routes to the new `describe_object` action (`sf sobject describe`), which reports the
+object's shape — label, custom/standard, field counts, record types, child relationships,
+key prefix, permissions — and points at `get_object_schema` for the field list rather than
+dumping tens of thousands of tokens of describe payload.
+
+**`cwd` was accepted and ignored**
+
+`sf` resolves source paths and the default org from the DX project it runs in, so a `cwd`
+in the arguments is now the subprocess's working directory. A non-directory is reported
+before the command runs.
+
+**Japanese search found the wrong components (request B)**
+
+`search_codebase("セルフ登録 職員番号 生年月日 有資格者リスト")` returned
+`Application__c.BirthDate__c` and `Application__c.StaffNumber__c` — two leaf fields —
+while the LWC `selfRegistration` and the Apex `SelfRegistrationController` /
+`SelfRegistrationService` that implement the feature did not appear at all, and
+`"セルフ登録"` alone returned 0 where `"register"` found all three.
+
+- **Vocabulary.** Nothing connected a Japanese word to an English identifier. A curated
+  JA↔EN table (same idea as `soql_compiler.FIELD_SYNONYM_MAP`, no model call) now maps
+  both directions, so `セルフ登録` reaches `SelfRegistrationController` and `staff number`
+  reaches `職員番号`. Projects extend it in `.rtk-sf/synonyms.yaml`; a malformed file is
+  ignored rather than breaking search.
+- **Ranking.** Results order by matched terms, then by matches on the component's **own
+  name**, then **implementation units over their leaves** (an Apex class or LWC above one
+  of its fields), then terms matched as typed over terms reached by synonym. Each result
+  reports `matched_terms`, `name_matches` and `direct_matches`.
+
+**A deploy whose tests failed was reported as a success**
+
+Apex test failures leave `numberComponentErrors` at 0 while `status` is `Failed`, which
+the headline rendered as `✅ Failed: 2 component(s)`.
+
+### Added
+
+**Apex test results on deploy/validate (request C)**
+
+A validate with `RunSpecifiedTests` reported only `✅ Succeeded: 2 component(s) in 18.9s`
+— nothing about whether the tests it was asked to run had run. Deploy and validate now
+add test counts, up to three failing test names with their messages, and code-coverage
+warnings:
+
+```
+❌ Failed: 2 component(s) in 42.0s
+❌ Tests: 5/7 passed — 2 failed
+  • SelfRegistrationControllerTest.testStaffNumber: System.AssertException: Expected: 1, Actual: 0
+  • ApplicationServiceTest.testBirthDate: List has no rows
+  ⚠️ coverage: Test coverage of selected Apex Class is 62%, at least 75% is required
+```
+
+A deploy that enabled tests but ran none says so instead of staying silent.
+
+### Known issues
+
+Unchanged from 0.10.2: the skill-priority hooks of the third-party
+`salesforce-development` plugin can block read-only log/query/anonymous-Apex commands.
+That plugin is outside rtk-sf. The `No such column` failures noted in #31 are
+field-level security in the org, not an rtk-sf defect.
+
+---
+
 ## [0.10.2] — 2026-10-02
 
 Fixes [#28](https://github.com/furuCRM-Inc/rtk-sf/issues/28).

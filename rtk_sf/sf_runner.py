@@ -9,11 +9,15 @@ normally dumps to stdout never reach the AI context window.
 Token impact: cuts terminal stream response overhead by ~99%.
 
 Supported actions:
-    deploy    sf project deploy start   [--source-dir | --metadata] [--test-level] [--tests]
-    validate  sf project deploy start --dry-run   (same flags as deploy)
-    retrieve  sf project retrieve start [--source-dir] [--metadata]
-    run_test  sf apex run test          [--class-names] [--test-level]
-    describe  sf org display            (read-only, always safe)
+    deploy           sf project deploy start   [--source-dir | --metadata] [--test-level] [--tests]
+    validate         sf project deploy start --dry-run   (same flags as deploy)
+    retrieve         sf project retrieve start [--source-dir] [--metadata]
+    run_test         sf apex run test          [--class-names] [--test-level]
+    describe         sf org display            — the ORG (read-only, always safe)
+    describe_object  sf sobject describe       — one SOBJECT in the live org
+
+Each action accepts only the arguments its command actually has, and says so
+itself rather than letting the CLI answer with "Nonexistent flag: --metadata".
 
 Apex test selection is spelled differently per command: `sf apex run test` takes
 `--class-names`, while `sf project deploy start` takes a repeatable `--tests`.
@@ -32,6 +36,7 @@ import logging
 import subprocess
 import sys
 import time
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -45,15 +50,95 @@ _SHELL = sys.platform == "win32"
 # ---------------------------------------------------------------------------
 
 _ACTION_MAP: dict[str, list[str]] = {
-    "deploy":   ["sf", "project", "deploy", "start"],
-    "retrieve": ["sf", "project", "retrieve", "start"],
-    "run_test": ["sf", "apex", "run", "test"],
-    "describe": ["sf", "org", "display"],
-    "validate": ["sf", "project", "deploy", "start", "--dry-run"],
+    "deploy":          ["sf", "project", "deploy", "start"],
+    "retrieve":        ["sf", "project", "retrieve", "start"],
+    "run_test":        ["sf", "apex", "run", "test"],
+    "describe":        ["sf", "org", "display"],
+    "describe_object": ["sf", "sobject", "describe"],
+    "validate":        ["sf", "project", "deploy", "start", "--dry-run"],
 }
 
 # Safe (read-only) actions — no confirmation needed
-_SAFE_ACTIONS = {"retrieve", "describe", "run_test"}
+_SAFE_ACTIONS = {"retrieve", "describe", "describe_object", "run_test"}
+
+# Arguments every action understands. `cwd` is not a CLI flag — it is the
+# directory the command runs in, which for `sf` must be the DX project root.
+_COMMON_ARGS = frozenset({"target_org", "cwd"})
+
+# `--wait` exists on the long-running commands only: `sf org display` and
+# `sf sobject describe` reject it with "Nonexistent flag: --wait".
+_WAIT_ACTIONS = frozenset({"deploy", "validate", "retrieve", "run_test"})
+
+# Arguments that are a timeout hint rather than a choice of what to act on.
+# An MCP client fills `wait` from the schema default, so an action that cannot
+# use it must drop it silently — failing the call would be worse than ignoring
+# a number the caller never meant to set.
+_IGNORABLE_ARGS = frozenset({"wait"})
+
+# What each action's underlying command can actually be given. Anything else
+# is rejected here, with a message naming the action that does take it.
+_ACTION_ARGS: dict[str, frozenset[str]] = {
+    "deploy": _COMMON_ARGS | {"source_dir", "metadata", "test_level", "class_names", "wait"},
+    "validate": _COMMON_ARGS | {"source_dir", "metadata", "test_level", "class_names", "wait"},
+    "retrieve": _COMMON_ARGS | {"source_dir", "metadata", "wait"},
+    "run_test": _COMMON_ARGS | {"test_level", "class_names", "wait"},
+    # `sobject` on `describe` is accepted and routed to describe_object: asking
+    # to "describe Application__c" is a reasonable reading of the action name.
+    "describe": _COMMON_ARGS | {"sobject"},
+    "describe_object": _COMMON_ARGS | {"sobject"},
+}
+
+# Which actions each argument belongs to, for the rejection message.
+_ARG_OWNERS: dict[str, str] = {
+    "wait": "deploy, validate, retrieve, run_test",
+    "source_dir": "deploy, validate, retrieve",
+    "metadata": "deploy, validate, retrieve",
+    "test_level": "deploy, validate, run_test",
+    "class_names": "deploy, validate, run_test",
+    "sobject": "describe_object",
+}
+
+
+def _reject_unusable_args(action: str, args: dict[str, Any]) -> None:
+    """
+    Raise ValueError for arguments the action's command does not have.
+
+    Without this the argument reached the CLI and came back as a bare
+    "Nonexistent flag: --metadata", which says nothing about which action the
+    caller should have used.
+    """
+    accepted = _ACTION_ARGS.get(action, _COMMON_ARGS)
+    unusable = [
+        name
+        for name, value in args.items()
+        if name not in accepted
+        and name not in _IGNORABLE_ARGS
+        and value not in (None, "", [], {})
+    ]
+    if not unusable:
+        return
+
+    details = []
+    for name in unusable:
+        owner = _ARG_OWNERS.get(name)
+        details.append(f"{name} (belongs to: {owner})" if owner else name)
+
+    raise ValueError(
+        f"{action} does not accept {', '.join(details)}. "
+        f"It accepts: {', '.join(sorted(accepted))}."
+    )
+
+
+def _resolve_action(action: str, args: dict[str, Any]) -> str:
+    """
+    Pick the action actually to run.
+
+    `describe` means the org, but a caller passing `sobject` plainly wants the
+    object, so route there instead of failing on an unusable argument.
+    """
+    if action == "describe" and args.get("sobject"):
+        return "describe_object"
+    return action
 
 
 def _build_command(action: str, args: dict[str, Any]) -> list[str]:
@@ -62,7 +147,18 @@ def _build_command(action: str, args: dict[str, Any]) -> list[str]:
     if base is None:
         raise ValueError(f"Unknown action '{action}'. Valid: {list(_ACTION_MAP)}")
 
+    _reject_unusable_args(action, args)
+
     cmd = list(base) + ["--json"]
+
+    if action == "describe_object":
+        sobject = str(args.get("sobject") or "").strip()
+        if not sobject:
+            raise ValueError(
+                "describe_object needs sobject — the object's API name "
+                "(e.g. sobject=\"Application__c\")."
+            )
+        cmd += ["--sobject", sobject]
 
     source_dir = args.get("source_dir")
     metadata = args.get("metadata")
@@ -111,7 +207,7 @@ def _build_command(action: str, args: dict[str, Any]) -> list[str]:
                 "Use run_test to run tests, or deploy/validate to run them as "
                 "part of a deployment."
             )
-    if args.get("wait"):
+    if args.get("wait") and action in _WAIT_ACTIONS:
         cmd += ["--wait", str(args["wait"])]
 
     return cmd
@@ -146,8 +242,55 @@ def _cli_error(data: dict[str, Any]) -> str | None:
     return f"❌ sf CLI error: {msg}"
 
 
+def _deploy_test_lines(result: dict[str, Any]) -> list[str]:
+    """
+    Lines describing the Apex tests a deploy or validate ran.
+
+    A validate with RunSpecifiedTests used to report only
+    "✅ Succeeded: 2 component(s)", which does not say whether the tests ran
+    at all — the whole point of validating. Counts come from the top-level
+    mdapi tallies, with `details.runTestResult` as the fallback.
+    """
+    run_result = (result.get("details") or {}).get("runTestResult") or {}
+
+    total = result.get("numberTestsTotal")
+    if total is None:
+        total = run_result.get("numTestsRun")
+    failed = result.get("numberTestErrors")
+    if failed is None:
+        failed = run_result.get("numFailures")
+    completed = result.get("numberTestsCompleted")
+
+    total = int(total or 0)
+    failed = int(failed or 0)
+    if completed is None:
+        completed = max(total - failed, 0)
+    passed = int(completed or 0)
+
+    lines: list[str] = []
+    if total or failed or passed:
+        verdict = "❌" if failed else "✅"
+        lines.append(f"{verdict} Tests: {passed}/{total} passed" + (f" — {failed} failed" if failed else ""))
+    elif result.get("runTestsEnabled"):
+        lines.append("⚠️ Tests enabled but none ran — check test_level/class_names")
+
+    for failure in (run_result.get("failures") or [])[:3]:
+        name = failure.get("name", "?")
+        method = failure.get("methodName", "?")
+        message = _one_line(failure.get("message", ""), 160)
+        lines.append(f"  • {name}.{method}: {message}")
+
+    warnings = run_result.get("codeCoverageWarnings") or []
+    for warning in warnings[:2]:
+        lines.append(f"  ⚠️ coverage: {_one_line(warning.get('message', ''), 160)}")
+    if len(warnings) > 2:
+        lines.append(f"  ⚠️ … {len(warnings) - 2} more coverage warning(s)")
+
+    return lines
+
+
 def _summarize_deploy(data: dict[str, Any], elapsed: float) -> str:
-    """Condense a deploy/retrieve JSON result to 3 lines."""
+    """Condense a deploy/validate/retrieve JSON result to a few lines."""
     error = _cli_error(data)
     if error:
         return error
@@ -167,17 +310,22 @@ def _summarize_deploy(data: dict[str, Any], elapsed: float) -> str:
             f"  • {f.get('componentType','?')} {f.get('fullName','?')}: {f.get('problem','?')}"
             for f in component_failures[:3]
         ]
-        return (
-            f"❌ Deploy failed — {errors} error(s)\n"
-            + "\n".join(msgs)
-            + ("\n  … (see full log)" if len(component_failures) > 3 else "")
-        )
+        lines = [f"❌ Deploy failed — {errors} error(s)"] + msgs
+        if len(component_failures) > 3:
+            lines.append("  … (see full log)")
+        # Tests still report: a component error does not mean no test ran.
+        return "\n".join(lines + _deploy_test_lines(result))
 
-    return (
-        f"✅ {str(status).title()}: {done} component(s)"
+    # A deploy whose Apex tests failed reports 0 component errors but a
+    # `status` of "Failed" — the headline must not call that a success.
+    failed_status = str(status).strip().lower() in {"failed", "canceled", "canceling"}
+    marker = "❌" if failed_status else "✅"
+    headline = (
+        f"{marker} {str(status).title()}: {done} component(s)"
         + (f" → {org}" if org else "")
         + f" in {elapsed:.1f}s"
     )
+    return "\n".join([headline] + _deploy_test_lines(result))
 
 
 def _summarize_run_test(data: dict[str, Any], elapsed: float) -> str:
@@ -269,6 +417,65 @@ def _summarize_describe(data: dict[str, Any], elapsed: float) -> str:
     return f"✅ Org: {headline}\n" + "\n".join(lines)
 
 
+def _summarize_describe_object(data: dict[str, Any], elapsed: float) -> str:
+    """
+    Condense `sf sobject describe --json` to a profile, never a field dump.
+
+    The raw describe of a real object runs to tens of thousands of tokens,
+    which is the whole reason rtk-sf exists — so this reports shape and
+    permissions and points at the local index for the field list.
+    """
+    error = _cli_error(data)
+    if error:
+        return error
+
+    result = data.get("result") or {}
+    name = result.get("name")
+    if not name:
+        return (
+            "⚠️ sf sobject describe returned no object. "
+            f"Keys present: {', '.join(sorted(result)) or 'none'}"
+        )
+
+    fields = result.get("fields") or []
+    custom_fields = [f for f in fields if f.get("custom")]
+    required = [
+        f
+        for f in fields
+        if not f.get("nillable", True)
+        and not f.get("defaultedOnCreate")
+        and f.get("createable")
+    ]
+    record_types = [rt for rt in (result.get("recordTypeInfos") or []) if rt.get("available")]
+    children = result.get("childRelationships") or []
+
+    permissions = [
+        label
+        for label, key in (
+            ("queryable", "queryable"),
+            ("createable", "createable"),
+            ("updateable", "updateable"),
+            ("deletable", "deletable"),
+        )
+        if result.get(key)
+    ]
+
+    lines = [
+        f"✅ {name} ({_one_line(result.get('label') or name, 80)})"
+        + (" [custom]" if result.get("custom") else " [standard]"),
+        f"  Fields: {len(fields)} ({len(custom_fields)} custom, {len(required)} required)",
+        f"  Record types: {len(record_types)}   Child relationships: {len(children)}",
+    ]
+    if result.get("keyPrefix"):
+        lines.append(f"  Key prefix: {result['keyPrefix']}")
+    if permissions:
+        lines.append(f"  Permissions: {', '.join(permissions)}")
+    lines.append(
+        f'  → Field list without an org round-trip: get_object_schema("{name}")'
+    )
+    return "\n".join(lines)
+
+
 def _summarize_retrieve(data: dict[str, Any], elapsed: float) -> str:
     """Condense a retrieve JSON result to one line."""
     error = _cli_error(data)
@@ -298,19 +505,27 @@ def run_sf_command(action: str, args: dict[str, Any] | None = None) -> str:
     Execute an sf CLI command silently and return a condensed summary.
 
     Args:
-        action:  One of 'deploy', 'retrieve', 'run_test', 'describe', 'validate'
-        args:    Optional dict with keys: target_org, source_dir, metadata,
-                 test_level, class_names, wait
+        action:  One of 'deploy', 'validate', 'retrieve', 'run_test',
+                 'describe', 'describe_object'
+        args:    Optional dict with keys: target_org, cwd, source_dir,
+                 metadata, test_level, class_names, sobject, wait
 
     Returns:
-        A 1–4 line human-readable summary string.
+        A 1–8 line human-readable summary string.
     """
     args = args or {}
+    action = _resolve_action(action, args)
 
     try:
         cmd = _build_command(action, args)
     except ValueError as exc:
         return f"❌ {exc}"
+
+    # `sf` resolves source paths and the default org from the DX project it is
+    # run in, so a caller that passes cwd must have it honoured.
+    cwd = args.get("cwd") or None
+    if cwd and not Path(cwd).is_dir():
+        return f"❌ cwd is not a directory: {cwd}"
 
     logger.info("sf_runner: %s", " ".join(cmd))
     start = time.time()
@@ -322,6 +537,7 @@ def run_sf_command(action: str, args: dict[str, Any] | None = None) -> str:
             text=True,
             timeout=600,
             shell=_SHELL,
+            cwd=cwd,
         )
     except FileNotFoundError:
         return "❌ sf CLI not found. Install: https://developer.salesforce.com/tools/salesforcecli"
@@ -350,4 +566,6 @@ def run_sf_command(action: str, args: dict[str, Any] | None = None) -> str:
         return _summarize_run_test(data, elapsed)
     if action == "describe":
         return _summarize_describe(data, elapsed)
+    if action == "describe_object":
+        return _summarize_describe_object(data, elapsed)
     return _summarize_generic(data, action, elapsed)
