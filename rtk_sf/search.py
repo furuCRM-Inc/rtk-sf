@@ -33,7 +33,7 @@ import re
 import sqlite3
 import unicodedata
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 logger = logging.getLogger(__name__)
 
@@ -149,9 +149,196 @@ def _is_trigram_searchable(variants: list[str]) -> bool:
     return any(len(v) >= _TRIGRAM_MIN for v in variants)
 
 
+# ---------------------------------------------------------------------------
+# Japanese ↔ English vocabulary
+# ---------------------------------------------------------------------------
+
+# Salesforce components are named in English; Japanese projects describe them
+# in Japanese. Nothing connects the two, so a query of
+# "セルフ登録" could not reach `SelfRegistrationController` while "register"
+# could. Same idea as soql_compiler.FIELD_SYNONYM_MAP: a curated table, no
+# model call. A project adds its own in `.rtk-sf/synonyms.yaml`:
+#
+#     セルフ登録: [selfRegistration, SelfRegistrationController]
+#
+_BUILTIN_SYNONYMS: dict[str, tuple[str, ...]] = {
+    # Processes
+    "セルフ登録": ("selfregistration", "self registration", "selfregist", "register"),
+    "自己登録": ("selfregistration", "self registration", "register"),
+    "登録": ("register", "registration", "create"),
+    "申込": ("application", "apply", "entry"),
+    "申請": ("application", "request"),
+    "承認": ("approval", "approve"),
+    "更新": ("update", "refresh"),
+    "削除": ("delete", "remove"),
+    "検索": ("search", "query", "find"),
+    "一覧": ("list", "listview", "table"),
+    "画面": ("screen", "page", "component", "view"),
+    "帳票": ("report", "document", "pdf"),
+    "添付": ("attachment", "file", "contentdocument"),
+    "ログイン": ("login", "signin"),
+    "認証": ("auth", "authentication"),
+    "権限": ("permission", "access"),
+    "権限セット": ("permissionset", "permission set"),
+    # People and attributes
+    "職員": ("staff", "employee"),
+    "職員番号": ("staffnumber", "staff number", "employeenumber", "employee number"),
+    "社員": ("employee", "staff"),
+    "氏名": ("name", "fullname"),
+    "名前": ("name",),
+    "生年月日": ("birthdate", "birth date", "dateofbirth", "date of birth"),
+    "年齢": ("age",),
+    "住所": ("address", "street"),
+    "電話番号": ("phone", "phonenumber"),
+    "メールアドレス": ("email", "emailaddress"),
+    "部署": ("department", "division"),
+    "担当者": ("owner", "assignee", "contact"),
+    "有資格者": ("qualified", "eligible", "certified"),
+    "資格": ("qualification", "license", "certification"),
+    "試験": ("exam", "test"),
+    "受験票": ("examticket", "exam ticket"),
+    # Standard objects
+    "取引先": ("account",),
+    "取引先責任者": ("contact",),
+    "商談": ("opportunity",),
+    "見込客": ("lead",),
+    "リード": ("lead",),
+    "ケース": ("case",),
+    "問い合わせ": ("case", "inquiry"),
+    "契約": ("contract",),
+    "注文": ("order",),
+    "商品": ("product", "product2"),
+    "見積": ("quote",),
+    "請求書": ("invoice",),
+    "ユーザ": ("user",),
+    "ユーザー": ("user",),
+    "キャンペーン": ("campaign",),
+    "ToDo": ("task",),
+    "活動": ("activity", "task", "event"),
+    # Generic nouns that still carry signal in an identifier
+    "番号": ("number", "no", "code"),
+    "日付": ("date",),
+    "金額": ("amount", "price"),
+    "数量": ("quantity",),
+    "状態": ("status", "state"),
+    "種別": ("type", "recordtype"),
+    "区分": ("type", "category"),
+    "設定": ("setting", "config"),
+    "履歴": ("history", "log"),
+}
+
+SYNONYMS_FILE = "synonyms.yaml"
+
+
+def _build_synonym_index(table: dict[str, tuple[str, ...]]) -> dict[str, tuple[str, ...]]:
+    """
+    Lowercase the table and add the reverse direction.
+
+    Both directions matter: a Japanese query has to reach English identifiers,
+    and an English query has to reach Japanese labels.
+    """
+    index: dict[str, set[str]] = {}
+    for source, targets in table.items():
+        key = source.lower()
+        lowered = [t.lower() for t in targets]
+        index.setdefault(key, set()).update(lowered)
+        for target in lowered:
+            # Reverse direction, plus the other targets of the same source:
+            # they are forms of one word, so "register" has to reach
+            # "selfregistration" the way "セルフ登録" does.
+            index.setdefault(target, set()).update([key, *lowered])
+    return {k: tuple(sorted(v - {k})) for k, v in index.items()}
+
+
+# Component types that are leaves of a larger feature. When two results match
+# the same number of query terms, the implementation unit (class, LWC, flow,
+# object) is more useful than one of its fields — the issue asked for exactly
+# this: "フィールドよりコンポーネントを優先する".
+_LEAF_TYPES = frozenset(
+    {
+        "CustomField",
+        "CustomLabel",
+        "ValidationRule",
+        "ListView",
+        "CompactLayout",
+        "WebLink",
+        "FieldSet",
+        "RecordType",
+    }
+)
+
+
+def _type_rank(component_type: str) -> int:
+    """1 for an implementation unit, 0 for a leaf of one."""
+    return 0 if component_type in _LEAF_TYPES else 1
+
+
 # Boolean operators are syntax, not search terms — they must not be counted
 # as "matched" when a verbatim FTS5 query is ranked.
 _FTS_OPERATORS = {"and", "or", "not", "near"}
+
+
+class _Term(NamedTuple):
+    """One query term: the forms the user typed, and what they also mean."""
+
+    direct: tuple[str, ...]
+    synonyms: tuple[str, ...]
+
+    @property
+    def variants(self) -> tuple[str, ...]:
+        return self.direct + self.synonyms
+
+
+def _plan_terms(query: str, synonyms: dict[str, tuple[str, ...]]) -> list[_Term]:
+    """Build the term plan used for retrieval, ranking and snippets."""
+    terms: list[_Term] = []
+    for variants in _ranking_groups(query):
+        expanded: list[str] = []
+        for variant in variants:
+            for synonym in synonyms.get(variant, ()):
+                if synonym not in variants and synonym not in expanded:
+                    expanded.append(synonym)
+        terms.append(_Term(tuple(variants), tuple(expanded)))
+    return terms
+
+
+def _score_terms(
+    name: str, raw_text: str, terms: list[_Term]
+) -> tuple[int, int, int]:
+    """
+    Score a candidate against the query plan.
+
+    Returns (matched, name_hits, direct_hits):
+      matched      — terms found anywhere in the component
+      name_hits    — terms found in the component's own name, which is a far
+                     stronger signal than a mention in the body text
+      direct_hits  — terms found in the form the user typed, as opposed to
+                     only through a synonym
+    """
+    name_text = f"{name} {_camel_split_text(name)}".lower()
+    body = f"{name_text}\n{raw_text}".lower()
+    name_norm = _normalize(name_text)
+    body_norm = _normalize(body)
+
+    matched = name_hits = direct_hits = 0
+    for term in terms:
+        in_name = any(v in name_text or v in name_norm for v in term.variants)
+        in_body = in_name or any(v in body or v in body_norm for v in term.variants)
+        if not in_body:
+            continue
+        matched += 1
+        if in_name:
+            name_hits += 1
+        if any(v in body or v in body_norm for v in term.direct):
+            direct_hits += 1
+    return matched, name_hits, direct_hits
+
+
+def _camel_split_text(text: str) -> str:
+    """Split identifiers so "SelfRegistrationController" also reads as words."""
+    spaced = re.sub(r"(?<=[a-z0-9])([A-Z])", r" \1", text)
+    spaced = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", spaced)
+    return re.sub(r"[_\-.]", " ", spaced)
 
 
 def _ranking_groups(query: str) -> list[list[str]]:
@@ -168,17 +355,6 @@ def _ranking_groups(query: str) -> list[list[str]]:
             continue
         groups.append(_term_variants(cleaned))
     return groups
-
-
-def _count_matched_terms(name: str, raw_text: str, groups: list[list[str]]) -> int:
-    """How many of the query's terms appear in this component at all."""
-    haystack = f"{name}\n{raw_text}".lower()
-    normalized = _normalize(haystack)
-    return sum(
-        1
-        for variants in groups
-        if any(v in haystack or v in normalized for v in variants)
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -261,6 +437,7 @@ class SearchEngine:
         self.db_path = self.rtk_dir / DB_FILE
         self.specs_dir = self.rtk_dir / SPECS_DIR
         self._conn: sqlite3.Connection | None = None
+        self._synonyms: dict[str, tuple[str, ...]] | None = None
 
     # ------------------------------------------------------------------
     # Connection management
@@ -288,6 +465,37 @@ class SearchEngine:
 
     def __exit__(self, *_: Any) -> None:
         self.close()
+
+    # ------------------------------------------------------------------
+    # Vocabulary
+    # ------------------------------------------------------------------
+
+    def synonyms(self) -> dict[str, tuple[str, ...]]:
+        """
+        The JA↔EN term table: built-ins plus `.rtk-sf/synonyms.yaml`.
+
+        The project file wins, so a team can map its own wording onto its own
+        component names. A malformed file is ignored rather than breaking
+        search — it is an optional relevance aid, not an index.
+        """
+        if self._synonyms is not None:
+            return self._synonyms
+
+        table = dict(_BUILTIN_SYNONYMS)
+        path = self.rtk_dir / SYNONYMS_FILE
+        if path.exists():
+            try:
+                import yaml  # lazy import
+
+                loaded = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+                for key, value in loaded.items():
+                    targets = value if isinstance(value, (list, tuple)) else [value]
+                    table[str(key)] = tuple(str(t) for t in targets if str(t).strip())
+            except Exception as exc:
+                logger.warning("Could not read %s: %s", path, exc)
+
+        self._synonyms = _build_synonym_index(table)
+        return self._synonyms
 
     # ------------------------------------------------------------------
     # Ingestion
@@ -495,8 +703,8 @@ class SearchEngine:
         if not query:
             return []
 
-        groups = [_term_variants(t) for t in _query_terms(query)]
-        ranking = _ranking_groups(query)
+        terms = _plan_terms(query, self.synonyms())
+        groups = [list(t.variants) for t in terms]
         # Over-fetch: ranking by term overlap needs more than `limit` rows to
         # choose from, especially on the OR and LIKE paths.
         pool = max(limit * 6, 30)
@@ -522,16 +730,19 @@ class SearchEngine:
         results: list[dict[str, Any]] = []
         for row in rows:
             raw_text = row["raw_text"]
+            matched, name_hits, direct_hits = _score_terms(
+                row["name"], raw_text, terms
+            )
             results.append(
                 {
                     "name": row["name"],
                     "type": row["type"],
                     "file_path": row["file_path"],
-                    "snippet": self._make_snippet(raw_text, query),
+                    "snippet": self._make_snippet(raw_text, query, terms=terms),
                     "score": float(row["fts_score"] or 0),
-                    "matched_terms": _count_matched_terms(
-                        row["name"], raw_text, ranking
-                    ),
+                    "matched_terms": matched,
+                    "name_matches": name_hits,
+                    "direct_matches": direct_hits,
                     "yaml_spec": row["yaml_spec"],
                 }
             )
@@ -539,11 +750,19 @@ class SearchEngine:
         if _NUMPY_AVAILABLE and results:
             self._attach_cosine(query, results, conn)
 
-        # Term overlap first, then semantic similarity, then FTS rank (lower
-        # is better in FTS5, and 0 on the LIKE paths).
+        # Ranking, most significant first:
+        #   1. how many query terms the component matched at all
+        #   2. matches on the component's own name — `SelfRegistrationController`
+        #      is what "セルフ登録" is asking for, not a field that mentions it
+        #   3. implementation units over their leaves (class/LWC over one field)
+        #   4. terms matched as typed, over terms reached via a synonym
+        #   5. cosine similarity, then FTS rank (lower is better; 0 on LIKE)
         results.sort(
             key=lambda r: (
                 -r["matched_terms"],
+                -r["name_matches"],
+                -_type_rank(r["type"]),
+                -r["direct_matches"],
                 -r.get("cosine_score", 0.0),
                 r["score"],
             )
@@ -639,19 +858,32 @@ class SearchEngine:
             result["cosine_score"] = _cosine_similarity(query_vec, doc_vec)
 
     @staticmethod
-    def _make_snippet(text: str, query: str, window: int = 150) -> str:
+    def _make_snippet(
+        text: str,
+        query: str,
+        window: int = 150,
+        terms: list[_Term] | None = None,
+    ) -> str:
         """
         Extract a text snippet around the first matching query term.
 
         Every term is tried, not just the first one: with an OR match the
         leading term is often the one that is absent, which used to pin the
         snippet to the top of the spec and hide why the result was returned.
+        Terms the user typed are preferred over their synonyms, so the snippet
+        shows the words that were actually searched for when they are present.
         """
         lower_text = text.lower()
+        if terms is None:
+            terms = [_Term(tuple(v), ()) for v in _ranking_groups(query)]
+
         pos = -1
-        for variants in _ranking_groups(query):
-            for variant in variants:
-                pos = lower_text.find(variant)
+        for forms in ([t.direct for t in terms], [t.synonyms for t in terms]):
+            for variants in forms:
+                for variant in variants:
+                    pos = lower_text.find(variant)
+                    if pos != -1:
+                        break
                 if pos != -1:
                     break
             if pos != -1:

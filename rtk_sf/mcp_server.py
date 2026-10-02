@@ -219,7 +219,13 @@ _TOOLS: list[dict[str, Any]] = [
         "name": "search_codebase",
         "description": (
             "Search the indexed Salesforce codebase using keyword full-text search. "
-            "Returns matching component names, types, and text snippets."
+            "Returns matching component names, types, and text snippets. "
+            "Multi-word queries match each term independently and rank by overlap, "
+            "then by matches on the component's own name, preferring implementation "
+            "units (Apex class, LWC, flow, object) over their fields. "
+            "Japanese and English are cross-matched through a built-in term table, so "
+            "'セルフ登録' reaches SelfRegistrationController; extend it per project in "
+            ".rtk-sf/synonyms.yaml, or attach project wording with annotate_component."
         ),
         "inputSchema": {
             "type": "object",
@@ -306,9 +312,13 @@ _TOOLS: list[dict[str, Any]] = [
     {
         "name": "sf_command",
         "description": (
-            "Execute a Salesforce CLI command silently and return a condensed 1–4 line summary. "
-            "Runs 'sf project deploy/retrieve' or 'sf apex run test' with --json in the background, "
-            "parses the full response, and suppresses the raw output tables. "
+            "Execute a Salesforce CLI command silently and return a condensed summary. "
+            "Runs the sf command with --json in the background, parses the full response, "
+            "and suppresses the raw output tables. "
+            "'describe' reports the ORG (sf org display); 'describe_object' reports one "
+            "SOBJECT in the live org (sf sobject describe) — prefer get_object_schema for "
+            "a field list, which reads the local index instead of calling the org. "
+            "deploy/validate also report Apex test counts, failures and coverage warnings. "
             "Token impact: cuts terminal response overhead by ~99%."
         ),
         "inputSchema": {
@@ -316,8 +326,18 @@ _TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "action": {
                     "type": "string",
-                    "description": "SF action to run.",
-                    "enum": ["deploy", "retrieve", "run_test", "describe", "validate"],
+                    "description": (
+                        "SF action to run. describe = the org; "
+                        "describe_object = one sObject in the org."
+                    ),
+                    "enum": [
+                        "deploy",
+                        "retrieve",
+                        "run_test",
+                        "describe",
+                        "describe_object",
+                        "validate",
+                    ],
                 },
                 "target_org": {
                     "type": "string",
@@ -349,6 +369,20 @@ _TOOLS: list[dict[str, Any]] = [
                         "Apex test class name(s). For run_test they become --class-names; "
                         "for deploy/validate they become --tests and imply "
                         "--test-level RunSpecifiedTests unless test_level is given."
+                    ),
+                },
+                "sobject": {
+                    "type": "string",
+                    "description": (
+                        "Object API name for describe_object (e.g. 'Application__c'). "
+                        "Passing it to 'describe' runs describe_object instead."
+                    ),
+                },
+                "cwd": {
+                    "type": "string",
+                    "description": (
+                        "Directory to run sf in — the Salesforce DX project root. "
+                        "sf resolves source paths and the default org from it."
                     ),
                 },
                 "wait": {
