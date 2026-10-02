@@ -386,16 +386,19 @@ All language tracks (Java, Kotlin, TypeScript, Python) are included in the base 
 Because rtk-sf is installed straight from git rather than PyPI, `pip install --upgrade rtk-sf` alone will report "Requirement already satisfied" without checking GitHub for newer commits — pip only re-resolves a VCS install when forced to.
 
 ```bash
-# Pin to a specific release (recommended — matches what CHANGELOG.md/Releases describe)
-pip install --upgrade --force-reinstall --no-deps "rtk-sf @ git+https://github.com/furuCRM-Inc/rtk-sf.git@v0.9.0"
+# Pin to a release tag (recommended — matches what CHANGELOG.md/Releases describe).
+# Replace the tag with the latest one: https://github.com/furuCRM-Inc/rtk-sf/releases
+pip install --upgrade --force-reinstall --no-deps "rtk-sf[all] @ git+https://github.com/furuCRM-Inc/rtk-sf.git@v0.10.2"
 
 # Or track main's latest commit
-pip install --upgrade --force-reinstall --no-deps "rtk-sf @ git+https://github.com/furuCRM-Inc/rtk-sf.git"
+pip install --upgrade --force-reinstall --no-deps "rtk-sf[all] @ git+https://github.com/furuCRM-Inc/rtk-sf.git@main"
 
 # Editable/dev install (tracks a local clone of this repo directly —
 # no reinstall needed after future changes)
 pip install -e /path/to/rtk-sf --no-deps
 ```
+
+`--no-deps` keeps the reinstall from rebuilding dependencies that are already present. Drop it when a release adds one (CHANGELOG.md says so), or when installing into a fresh environment.
 
 Check `rtk-sf --version` (or the `serverInfo.version` field in the MCP `initialize` response) to confirm which version an already-registered MCP server is actually running — a server started with a bare `python3 -m rtk_sf serve` picks up whatever `rtk_sf` package the invoking `python3` resolves on `PATH`, which can silently differ from the copy you just upgraded if more than one Python environment has it installed.
 
