@@ -5,6 +5,13 @@ Strips conversational noise from user prompts before they consume tokens in
 the AI context window. Preserves Salesforce API names, method names, class
 names, and all structural parameters.
 
+Compaction is prose-only. Pasted machine text — fenced code blocks, inline
+code spans, `sf … --json` output, eslint reports, stack traces — is stashed
+behind placeholders first and restored untouched, because rewriting it
+destroys the thing the user pasted it for: indentation inside a fence used to
+be collapsed (invalid YAML), and an identifier quoted in a lint message could
+be deleted outright (`'just' is assigned a value` → `'' is assigned a value`).
+
 Token impact: a 200-token polite request → ~80-token intent payload.
 """
 
@@ -114,12 +121,90 @@ _SF_API_RE = re.compile(
 )
 
 
+# ---------------------------------------------------------------------------
+# Machine-text protection
+# ---------------------------------------------------------------------------
+
+# Fenced code block — ``` or ~~~ — including an unterminated one, where the
+# fence runs to the end of the prompt.
+_FENCE_RE = re.compile(
+    r"^(?P<fence>```|~~~)[^\n]*\n.*?(?:^(?P=fence)[ \t]*$|\Z)",
+    re.MULTILINE | re.DOTALL,
+)
+
+# Inline code span: `like this`.
+_INLINE_CODE_RE = re.compile(r"`[^`\n]+`")
+
+# Whole lines that are machine output rather than prose. Each alternative is
+# anchored to a full line so ordinary sentences are never caught.
+_MACHINE_LINE_RE = re.compile(
+    r"""^[ \t]*(?:
+          [$%>][ \t].*                         # shell prompt: "$ sf org display"
+        | (?:sf|sfdx|npm|npx|node|git|gh|python3?|pytest|eslint|prettier|mvn|gradle)
+          [ \t]+\S.*                           # a bare command line
+        | at[ \t]+\S+\(.*\).*                  # stack frame: "at foo (bar.js:1:2)"
+        | File[ \t]+".*",[ \t]+line[ \t]+\d+.* # python traceback frame
+        | Traceback[ \t]*\(most[ \t]recent.*
+        | \d+:\d+[ \t]+(?:error|warning)\b.*   # eslint row
+        | \S*[\w./-]+\.(?:js|ts|cls|trigger|xml|json|ya?ml|py|java|html|css|cmp|page|md)
+          (?::\d+)*[ \t]*.*                    # a path, optionally with line:col
+        | [{}\[\]].*                           # JSON/array structure line
+        | "[^"]+"[ \t]*:.*                      # JSON key line
+        | (?:ERROR|WARN(?:ING)?|INFO|DEBUG|FATAL|USER_DEBUG)\b.*
+        | [-|+][-|+\s]{3,}.*                    # table rule / ASCII border
+    )$""",
+    re.MULTILINE | re.VERBOSE,
+)
+
+# Placeholder uses control characters so it cannot collide with user text.
+_PLACEHOLDER = "\x00rtk{}\x00"
+_PLACEHOLDER_RE = re.compile(r"\x00rtk(\d+)\x00")
+
+# Above this share of machine text, the prompt is a paste, not a request:
+# compacting the prose around it saves almost nothing and risks everything.
+_CODE_HEAVY_RATIO = 0.4
+
+
+def _protect(text: str) -> tuple[str, list[str]]:
+    """Replace machine text with placeholders. Returns (masked_text, stash)."""
+    stash: list[str] = []
+
+    def _stash(match: re.Match[str]) -> str:
+        stash.append(match.group(0))
+        return _PLACEHOLDER.format(len(stash) - 1)
+
+    masked = _FENCE_RE.sub(_stash, text)
+    masked = _INLINE_CODE_RE.sub(_stash, masked)
+    masked = _MACHINE_LINE_RE.sub(_stash, masked)
+    return masked, stash
+
+
+def _restore(text: str, stash: list[str]) -> str:
+    """Put the stashed machine text back, byte for byte."""
+    return _PLACEHOLDER_RE.sub(lambda m: stash[int(m.group(1))], text)
+
+
+def is_code_heavy(text: str) -> bool:
+    """
+    True when the prompt is mostly pasted machine text.
+
+    The compactor hook uses this to skip such a prompt entirely: there is
+    little prose to win and a paste is exactly what must survive intact.
+    """
+    if not text:
+        return False
+    _, stash = _protect(text)
+    protected_chars = sum(len(block) for block in stash)
+    return protected_chars / len(text) >= _CODE_HEAVY_RATIO
+
+
 def compact_prompt(text: str) -> tuple[str, int, int]:
     """
     Strip conversational noise from a bilingual prompt.
 
     Preserves Salesforce API names, method names, class names,
-    SOQL keywords, and any structural parameters.
+    SOQL keywords, any structural parameters, and all machine text
+    (fenced blocks, inline code, CLI/lint output, stack traces).
 
     Args:
         text: Raw user prompt (English, Japanese, or mixed)
@@ -128,7 +213,10 @@ def compact_prompt(text: str) -> tuple[str, int, int]:
         (compacted_text, original_char_count, compacted_char_count)
     """
     original_len = len(text)
-    result = text
+
+    # Stash code blocks, inline code and pasted CLI output before any
+    # substitution runs — none of the patterns below may see them.
+    result, stash = _protect(text)
 
     # Strip English fillers
     result = _EN_FILLER_RE.sub("", result)
@@ -139,10 +227,13 @@ def compact_prompt(text: str) -> tuple[str, int, int]:
     # Strip trailing Japanese particles (but preserve the noun they follow)
     result = _JA_PARTICLE_RE.sub(r"\1", result)
 
-    # Normalize whitespace
-    result = re.sub(r"[ \t]{2,}", " ", result)
+    # Normalize whitespace. The lookbehind keeps leading indentation: in a
+    # pasted structure that is not fenced, indentation is meaning.
+    result = re.sub(r"(?<=\S)[ \t]{2,}", " ", result)
     result = re.sub(r"\n{3,}", "\n\n", result)
     result = result.strip()
+
+    result = _restore(result, stash)
 
     return result, original_len, len(result)
 

@@ -40,6 +40,16 @@ _METHOD_SIG = re.compile(
     re.MULTILINE | re.IGNORECASE,
 )
 
+# Keywords that look like a method signature to the regex above but are
+# control flow: `else if (cond) {`, `return new Map<Id, X> (…) {`, …
+# Treating one as a method made build_skeleton re-emit the enclosing body.
+_NOT_A_METHOD = frozenset(
+    {
+        "if", "else", "for", "while", "do", "switch", "when", "try", "catch",
+        "finally", "return", "new", "throw", "synchronized", "get", "set",
+    }
+)
+
 # Class-level field / property / constant — lines NOT inside any method body
 _FIELD_LINE = re.compile(
     r"^[ \t]*(?:(?:public|global|private|protected|static|final|"
@@ -140,17 +150,33 @@ def build_skeleton(source: str, focus_methods: list[str] | None = None) -> str:
     )
     class_name = class_match.group(1).lower() if class_match else ""
 
-    # Collect all method blocks: (start_of_sig, end_of_body, name, full_sig)
+    # Collect top-level method blocks: (start_of_sig, end_of_body, name, full_sig).
+    #
+    # Two filters keep the output from duplicating source text:
+    #   * control-flow statements are not methods, even though they match the
+    #     signature regex (`else if (x) {`);
+    #   * matches *inside* an already-collected body are nested (a method of an
+    #     inner class, or a statement in a body kept in full). Emitting one
+    #     would rewind the output cursor and print the enclosing body twice.
     blocks: list[dict[str, Any]] = []
+    covered_until = -1
     for m in _METHOD_SIG.finditer(source):
+        name = m.group("name")
+        ret = (m.group("ret") or "").strip().lower()
+        if name.lower() in _NOT_A_METHOD or ret in _NOT_A_METHOD:
+            continue
+        if m.start() < covered_until:
+            continue
+
         brace_pos = m.end() - 1  # position of opening '{'
         end_pos = _find_block_end(source, brace_pos)
+        covered_until = end_pos + 1
         blocks.append(
             {
                 "sig_start": m.start(),
                 "body_open": brace_pos,
                 "body_close": end_pos,
-                "name": m.group("name").lower(),
+                "name": name.lower(),
                 "indent": m.group("indent"),
                 "full_sig": m.group(0)[: m.end() - m.start()],
             }
@@ -169,7 +195,12 @@ def build_skeleton(source: str, focus_methods: list[str] | None = None) -> str:
         name = block["name"]
         indent = block["indent"]
 
-        # Text before this method (class header, fields, annotations)
+        # Text before this method (class header, fields, annotations).
+        # `blocks` is already non-overlapping, so this slice is never empty
+        # for the wrong reason — but guard anyway: a backwards cursor is what
+        # produced duplicated bodies before.
+        if sig_start < cursor:
+            continue
         parts.append(source[cursor:sig_start])
 
         is_constructor = name == class_name

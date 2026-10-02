@@ -345,7 +345,11 @@ _TOOLS: list[dict[str, Any]] = [
                 },
                 "class_names": {
                     "type": ["string", "array"],
-                    "description": "Apex test class name(s) for run_test action.",
+                    "description": (
+                        "Apex test class name(s). For run_test they become --class-names; "
+                        "for deploy/validate they become --tests and imply "
+                        "--test-level RunSpecifiedTests unless test_level is given."
+                    ),
                 },
                 "wait": {
                     "type": "integer",
@@ -1441,9 +1445,20 @@ class MCPServer:
         if not results:
             return f"No results found for '{query}'."
 
+        from rtk_sf.search import _ranking_groups
+
+        total_terms = len(_ranking_groups(query))
+
         lines = [f"Search results for '{query}':\n"]
         for i, r in enumerate(results, 1):
-            lines.append(f"{i}. [{r['type']}] {r['name']}")
+            matched = r.get("matched_terms", total_terms)
+            # Flag partial hits so a multi-word query is not read as an exact match.
+            partial = (
+                f"  (matched {matched}/{total_terms} terms)"
+                if total_terms > 1 and matched < total_terms
+                else ""
+            )
+            lines.append(f"{i}. [{r['type']}] {r['name']}{partial}")
             if r.get("snippet"):
                 lines.append(f"   {r['snippet']}")
             lines.append("")

@@ -110,6 +110,27 @@ Search results for 'payment processing':
    ...processType: AutoLaunchedFlow, status: Active...
 ```
 
+**Multi-word and Japanese queries**
+
+Terms are matched independently and results are ranked by how many of them a
+component contains, so a query degrades to "best overlap" rather than returning
+nothing when no single component holds every word:
+
+```
+Search results for 'セルフ登録 職員番号':
+
+1. [ApexClass] SelfRegisterStaffController
+   ...セルフ登録画面で職員番号を検証する...
+
+2. [CustomObject] Staff__c  (matched 1/2 terms)
+   ...label: 職員番号...
+```
+
+Queries are NFKC-folded (full-width `ＡＢＣ` matches `ABC`), Japanese punctuation
+(`、` `。`) separates terms, and 1–2 character terms — unrepresentable in the FTS5
+trigram index — are reached by a substring scan. Explicit FTS5 syntax (`Staff*`,
+`"exact phrase"`, `AND`/`OR`/`NOT`/`NEAR`) is passed through unchanged.
+
 ---
 
 ### `get_relations`
