@@ -156,8 +156,9 @@ pip install "rtk-sf[vector]"
 pip install rtk-sf numpy
 ```
 
-When numpy is available, `search_codebase` results are re-ranked by semantic
-similarity in addition to FTS5 keyword relevance.
+When numpy is available, `search_codebase` uses cosine similarity as a
+tiebreaker behind term overlap and FTS5 keyword relevance. It is optional:
+search works without numpy, including for Japanese queries.
 
 ---
 

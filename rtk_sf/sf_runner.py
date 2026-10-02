@@ -9,10 +9,16 @@ normally dumps to stdout never reach the AI context window.
 Token impact: cuts terminal stream response overhead by ~99%.
 
 Supported actions:
-    deploy    sf project deploy start   [--source-dir | --metadata] [--test-level]
+    deploy    sf project deploy start   [--source-dir | --metadata] [--test-level] [--tests]
+    validate  sf project deploy start --dry-run   (same flags as deploy)
     retrieve  sf project retrieve start [--source-dir] [--metadata]
     run_test  sf apex run test          [--class-names] [--test-level]
-    describe  sf org describe           (read-only, always safe)
+    describe  sf org display            (read-only, always safe)
+
+Apex test selection is spelled differently per command: `sf apex run test` takes
+`--class-names`, while `sf project deploy start` takes a repeatable `--tests`.
+Callers pass `class_names` either way and this module maps it to the flag the
+target command actually has.
 
 Usage (via MCP tool sf_command):
     result = run_sf_command("deploy", {"target_org": "dev01", "source_dir": "force-app"})
@@ -81,31 +87,73 @@ def _build_command(action: str, args: dict[str, Any]) -> list[str]:
             cmd += ["--metadata", str(item)]
     if args.get("test_level"):
         cmd += ["--test-level", str(args["test_level"])]
-    if args.get("class_names"):
-        names = args["class_names"]
-        if isinstance(names, list):
+    class_names = args.get("class_names")
+    if class_names:
+        names = (
+            [str(n).strip() for n in class_names if str(n).strip()]
+            if isinstance(class_names, (list, tuple))
+            else [n.strip() for n in str(class_names).split(",") if n.strip()]
+        )
+        if action == "run_test":
+            # `sf apex run test` takes one comma-separated --class-names value.
             cmd += ["--class-names", ",".join(names)]
+        elif action in ("deploy", "validate"):
+            # `sf project deploy start` has no --class-names flag — it rejects it
+            # with "Nonexistent flag: --class-names". The equivalent is a
+            # repeatable --tests, which is only honoured with RunSpecifiedTests.
+            for name in names:
+                cmd += ["--tests", name]
+            if not args.get("test_level"):
+                cmd += ["--test-level", "RunSpecifiedTests"]
         else:
-            cmd += ["--class-names", str(names)]
+            raise ValueError(
+                f"{action} does not run Apex tests — drop class_names. "
+                "Use run_test to run tests, or deploy/validate to run them as "
+                "part of a deployment."
+            )
     if args.get("wait"):
         cmd += ["--wait", str(args["wait"])]
 
     return cmd
 
 
-def _summarize_deploy(data: dict[str, Any], elapsed: float) -> str:
-    """Condense a deploy/retrieve JSON result to 3 lines."""
-    result = data.get("result") or {}
+def _cli_error(data: dict[str, Any]) -> str | None:
+    """
+    Return a one-line error summary if the CLI rejected the command itself.
+
+    On a flag error, a missing default org or an auth failure the JSON carries
+    no nested `result` and `status` is the process exit code, e.g.
+
+        {"name": "NoDefaultEnvError", "message": "No default environment …",
+         "status": 1}
+
+    Every summarizer must consult this first: reading `result` straight off
+    such a payload yields an empty dict, which previously surfaced as a
+    *successful* summary ("✅ Org: unknown ()") and hid the real error.
+
+    Returns None when the payload looks like a successful command.
+    """
+    result = data.get("result")
     top_status = data.get("status")
 
-    # The sf CLI rejected the command itself (bad flag combination, missing
-    # auth, unknown org, …): the JSON carries no nested result and `status`
-    # is the process exit code. Surface the CLI's own message.
-    if not isinstance(result, dict) or (not result and top_status not in (0, None)):
-        msg = data.get("message") or data.get("name") or "Unknown error"
-        # CLI messages are multi-line; keep the summary contract to one line.
-        msg = " ".join(str(msg).split())[:300]
-        return f"❌ sf CLI error: {msg}"
+    failed = not isinstance(result, dict) or (not result and top_status not in (0, None))
+    if not failed:
+        return None
+
+    msg = data.get("message") or data.get("name") or "Unknown error"
+    # CLI messages are multi-line; keep the summary contract to one line.
+    msg = " ".join(str(msg).split())[:300]
+    return f"❌ sf CLI error: {msg}"
+
+
+def _summarize_deploy(data: dict[str, Any], elapsed: float) -> str:
+    """Condense a deploy/retrieve JSON result to 3 lines."""
+    error = _cli_error(data)
+    if error:
+        return error
+
+    result = data.get("result") or {}
+    top_status = data.get("status")
 
     status = result.get("status", top_status if top_status is not None else "Unknown")
     done = result.get("numberComponentsDeployed", result.get("fileCount", 0))
@@ -134,6 +182,10 @@ def _summarize_deploy(data: dict[str, Any], elapsed: float) -> str:
 
 def _summarize_run_test(data: dict[str, Any], elapsed: float) -> str:
     """Condense an apex run test JSON result."""
+    error = _cli_error(data)
+    if error:
+        return error
+
     result = data.get("result", {})
     summary = result.get("summary", {})
     passed = summary.get("passing", 0)
@@ -156,18 +208,84 @@ def _summarize_run_test(data: dict[str, Any], elapsed: float) -> str:
     return f"✅ Tests: {passed}/{total} passed in {elapsed:.1f}s"
 
 
+# Fields of `sf org display --json` worth a line in the summary, in print order.
+_DESCRIBE_FIELDS: list[tuple[str, tuple[str, ...]]] = [
+    ("Alias", ("alias",)),
+    ("Username", ("username",)),
+    ("Org ID", ("id", "orgId")),
+    ("Instance", ("instanceUrl",)),
+    ("Status", ("connectedStatus", "status")),
+    ("API version", ("apiVersion",)),
+    ("Expires", ("expirationDate",)),
+]
+
+
+def _one_line(value: Any, limit: int = 160) -> str:
+    """Collapse a field value to a single bounded line.
+
+    `connectedStatus` carries a whole multi-line REST error when the org is
+    unreachable, which would otherwise blow the summary's size contract.
+    """
+    text = " ".join(str(value).split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
 def _summarize_describe(data: dict[str, Any], elapsed: float) -> str:
-    result = data.get("result", {})
-    alias = result.get("alias", result.get("username", "unknown"))
-    instance = result.get("instanceUrl", "")
-    return f"✅ Org: {alias} ({instance})"
+    """
+    Condense `sf org display --json` to a labelled block.
+
+    Only fields the CLI actually returned are printed, so a scratch org shows
+    its expiry and a production org does not.
+    """
+    error = _cli_error(data)
+    if error:
+        if "NoDefaultEnv" in str(data.get("name", "")) or "default environment" in error:
+            return (
+                f"{error}\n"
+                "  → Pass target_org, or set a default: sf config set target-org=<alias>"
+            )
+        return error
+
+    result = data.get("result") or {}
+
+    lines: list[str] = []
+    for label, keys in _DESCRIBE_FIELDS:
+        value = next(
+            (result[k] for k in keys if result.get(k) not in (None, "")),
+            None,
+        )
+        if value is not None:
+            lines.append(f"  {label}: {_one_line(value)}")
+
+    if not lines:
+        # Exit code 0 but nothing recognisable in the payload — say so rather
+        # than inventing an org named "unknown".
+        return (
+            "⚠️ sf org display returned no org fields. "
+            f"Keys present: {', '.join(sorted(result)) or 'none'}"
+        )
+
+    headline = _one_line(result.get("alias") or result.get("username") or "org", 80)
+    return f"✅ Org: {headline}\n" + "\n".join(lines)
+
+
+def _summarize_retrieve(data: dict[str, Any], elapsed: float) -> str:
+    """Condense a retrieve JSON result to one line."""
+    error = _cli_error(data)
+    if error:
+        return error
+
+    result = data.get("result") or {}
+    files = result.get("fileCount")
+    if files is None:
+        files = len(result.get("files") or [])
+    return f"✅ Retrieved {files} file(s) in {elapsed:.1f}s"
 
 
 def _summarize_generic(data: dict[str, Any], action: str, elapsed: float) -> str:
-    status = data.get("status", 0)
-    if status != 0:
-        msg = data.get("message", "Unknown error")
-        return f"❌ {action} failed: {msg}"
+    error = _cli_error(data)
+    if error:
+        return error
     return f"✅ {action} completed in {elapsed:.1f}s"
 
 
@@ -227,8 +345,7 @@ def run_sf_command(action: str, args: dict[str, Any] | None = None) -> str:
     if action in ("deploy", "validate"):
         return _summarize_deploy(data, elapsed)
     if action == "retrieve":
-        files = data.get("result", {}).get("fileCount", "?")
-        return f"✅ Retrieved {files} file(s) in {elapsed:.1f}s"
+        return _summarize_retrieve(data, elapsed)
     if action == "run_test":
         return _summarize_run_test(data, elapsed)
     if action == "describe":

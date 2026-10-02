@@ -19,6 +19,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.10.2] — 2026-10-02
+
+Fixes [#28](https://github.com/furuCRM-Inc/rtk-sf/issues/28).
+
+### Fixed
+
+**Japanese search returned 0 results where an English word worked**
+
+`search_codebase("セルフ登録 職員番号")` and `search_codebase("生年月日 有資格者リスト")`
+found nothing, while `search_codebase("register")` found the same component. Two
+properties of the FTS5 trigram index were never compensated for in the query layer:
+
+- FTS5 joins bare terms with an implicit **AND**, so a multi-word query only matched
+  a component containing every word verbatim — 0 results as soon as the words lived
+  in sibling components.
+- A term shorter than **3 characters** matches nothing at all under the trigram
+  tokenizer, silently. Japanese is full of 2-character words (`職員`, `番号`, `商談`),
+  and one of them was enough to empty the result set.
+
+`search()` now widens only as far as it has to — AND → OR → `LIKE` (the only path
+that can reach a 1–2 character term) — and ranks results by how many query terms the
+component actually matched. Queries are also NFKC-folded, so a full-width
+`ＡｃｃｏｕｎｔＳｅｒｖｉｃｅ` matches the index, and Japanese punctuation between
+keywords (`、` `。`) is treated as a separator instead of being searched for.
+`search_codebase` labels a partial hit as `(matched 1/2 terms)`; explicit FTS5 syntax
+(`Staff*`, quotes, `AND`/`OR`/`NOT`/`NEAR`) is still passed through verbatim.
+
+**`sf_command(action="validate", class_names=…)` could not run**
+
+It failed with `Nonexistent flag: --class-names`. That flag belongs to
+`sf apex run test`; `sf project deploy start` spells the same thing as a repeatable
+`--tests`. `class_names` is now mapped per command and implies
+`--test-level RunSpecifiedTests` for deploy/validate unless `test_level` is given.
+Passing it to an action that cannot run tests reports that instead of shelling out.
+
+**`sf_command(action="describe")` reported `Org: unknown ()`**
+
+On a CLI-level failure (no default org, bad alias, expired auth) the `--json` payload
+carries no `result`, only `name`/`message`/`status`. The summarizer read `result` off
+it, got an empty dict, and printed a **success** line for an org that was never
+reached. All summarizers now check that shape first, and `describe` prints the fields
+the CLI actually returned (alias, username, org ID, instance, connected status, API
+version, expiry) instead of one guessed line.
+
+**The prompt compactor corrupted pasted CLI output**
+
+The `UserPromptSubmit` hook rewrites the prompt the model sees, and it applied its
+prose rules to the whole thing, so pasted machine text arrived damaged:
+
+- indentation inside a fenced block was collapsed (`re.sub(r"[ \t]{2,}", " ")`),
+  turning pasted YAML or JSON into something that no longer parses;
+- the English filler list deleted words *inside* quoted machine text — eslint's
+  `'just' is assigned a value but never used` became `'' is assigned a value…`.
+
+Fenced blocks, inline code spans, shell-prompt lines, JSON/lint rows, stack traces
+and file paths are now stashed before any substitution runs and restored byte for
+byte; indentation is never collapsed; and a prompt that is mostly machine text skips
+compaction entirely (`is_code_heavy`).
+
+**`get_class_skeleton` printed method bodies twice**
+
+`_METHOD_SIG` also matched control flow — `else if (cond) {` parses as return type
+`else`, name `if`. Such a match sits inside a method body, so the emit loop rewound
+its output cursor and printed the enclosing body a second time, interleaved with
+`/* Logic Hidden */` placeholders. Control-flow keywords are now excluded and nested
+matches are skipped, so every body appears exactly once.
+
+### Known issues
+
+The skill-priority hooks of the third-party `salesforce-development` plugin can block
+read-only log/query/anonymous-Apex commands. That plugin is outside rtk-sf and cannot
+be fixed from here — remove its `PreToolUse` entry from `.claude/settings.json` if it
+gets in the way.
+
+---
+
 ## [0.10.1] — 2026-09-29
 
 ### Fixed

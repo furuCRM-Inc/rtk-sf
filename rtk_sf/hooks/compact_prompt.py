@@ -11,7 +11,12 @@ Claude Code hook protocol:
 Only fires when:
   - prompt length > 300 chars AND
   - contains Japanese characters OR length > 800 chars (long English prompt)
+  - the prompt is not mostly pasted machine text (code, CLI/lint output)
   - compaction achieves > 5% reduction
+
+The machine-text check matters: this hook rewrites the prompt the model then
+sees, so a pasted `sf … --json` payload or lint report must reach the model
+exactly as the user pasted it.
 """
 
 from __future__ import annotations
@@ -47,8 +52,14 @@ def main() -> None:
         sys.exit(0)
 
     try:
-        from rtk_sf.nlp_compactor import compact_prompt
+        from rtk_sf.nlp_compactor import compact_prompt, is_code_heavy
         from rtk_sf.hooks._log import append
+
+        # A paste, not a request — leave it exactly as the user sent it.
+        if is_code_heavy(prompt):
+            append("compact", "skip:code_heavy", chars=len(prompt))
+            sys.exit(0)
+
         compacted, orig_chars, new_chars = compact_prompt(prompt)
         savings_pct = (orig_chars - new_chars) / orig_chars * 100 if orig_chars else 0
         if savings_pct < MIN_SAVINGS_PCT:

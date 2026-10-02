@@ -5,6 +5,20 @@ Provides keyword search over indexed Salesforce metadata specs using SQLite's
 built-in FTS5 full-text search. When numpy is available, cosine similarity
 is layered on top for semantic ranking.
 
+The index uses the trigram tokenizer, which has two consequences that the
+query layer has to compensate for — both of which made CJK queries look
+broken:
+
+  * A term shorter than 3 characters matches *nothing*, silently. Plenty of
+    Japanese words are 2 characters ("職員", "番号", "商談"), so such a term
+    would wipe out the whole result set.
+  * FTS5 joins bare terms with an implicit AND, so a multi-word query like
+    "セルフ登録 職員番号" only matches a component containing both strings
+    verbatim — 0 results as soon as the words live in sibling components.
+
+`search()` therefore widens progressively (AND → OR → LIKE) and ranks by how
+many of the query terms a component actually matched.
+
 Usage:
     engine = SearchEngine("/path/to/project")
     results = engine.search("AccountService", limit=5)
@@ -15,7 +29,9 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sqlite3
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -58,9 +74,111 @@ def _bag_of_words_vector(text: str, vocab: list[str]) -> list[float]:
 
     This is a lightweight stand-in for proper embeddings when an LLM API is
     not available, preserving the zero-external-API constraint of rtk-sf.
+
+    CJK vocabulary entries are matched as substrings rather than whitespace
+    tokens: Japanese text carries no spaces, so "職員番号を更新" would never
+    equal the token "職員番号" and every cosine score came out 0.
     """
-    words = set(text.lower().split())
-    return [1.0 if term in words else 0.0 for term in vocab]
+    lowered = text.lower()
+    words = set(lowered.split())
+    return [
+        1.0 if (term in words or (_CJK_RE.search(term) and term in lowered)) else 0.0
+        for term in vocab
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Query analysis
+# ---------------------------------------------------------------------------
+
+# Hiragana, katakana, CJK ideographs, halfwidth katakana.
+_CJK_RE = re.compile(
+    r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff66-\uff9f]"
+)
+
+# Explicit FTS5 syntax — such a query is handed to FTS5 verbatim so power
+# users keep prefix (`Account*`), phrase ("…") and boolean operators.
+_FTS_SYNTAX_RE = re.compile(r'["*():]|(?:^|\s)(?:AND|OR|NOT|NEAR)(?:\s|$)')
+
+# Term separators: ASCII whitespace plus the Japanese ideographic space and
+# the punctuation people actually type between keywords.
+_TERM_SPLIT_RE = re.compile(r"[\s\u3000、，,;；/|]+")
+
+# Characters stripped from the edges of a term — Japanese sentence enders and
+# brackets carry no search value.
+_TERM_TRIM = "。．.!！?？:：\"'「」『』（）()[]【】<>"
+
+# The trigram tokenizer cannot index or match anything shorter than this.
+_TRIGRAM_MIN = 3
+
+
+def _normalize(text: str) -> str:
+    """NFKC-fold and lowercase — collapses full-width ＡＢＣ/１２３ and ｶﻨ forms."""
+    return unicodedata.normalize("NFKC", text).lower()
+
+
+def _query_terms(query: str) -> list[str]:
+    """Split a query into search terms, preserving order and dropping noise."""
+    terms: list[str] = []
+    for chunk in _TERM_SPLIT_RE.split(query.strip()):
+        term = chunk.strip(_TERM_TRIM)
+        if term:
+            terms.append(term)
+    return terms
+
+
+def _term_variants(term: str) -> list[str]:
+    """
+    Return the forms of *term* worth matching against the index.
+
+    The index stores raw (lowercased) spec text, so a full-width query term
+    has to be tried in both its original and NFKC-folded form rather than
+    forcing a re-index.
+    """
+    return list(dict.fromkeys([term.lower(), _normalize(term)]))
+
+
+def _fts_group(variants: list[str]) -> str:
+    """Build an FTS5 sub-expression matching any variant of one term."""
+    phrases = ['"' + v.replace('"', '""') + '"' for v in variants]
+    return phrases[0] if len(phrases) == 1 else "(" + " OR ".join(phrases) + ")"
+
+
+def _is_trigram_searchable(variants: list[str]) -> bool:
+    """True if at least one variant is long enough for the trigram index."""
+    return any(len(v) >= _TRIGRAM_MIN for v in variants)
+
+
+# Boolean operators are syntax, not search terms — they must not be counted
+# as "matched" when a verbatim FTS5 query is ranked.
+_FTS_OPERATORS = {"and", "or", "not", "near"}
+
+
+def _ranking_groups(query: str) -> list[list[str]]:
+    """
+    Term groups used for ranking and snippets.
+
+    Same as the retrieval terms, minus FTS5 syntax: a prefix query like
+    `Staff*` ranks on "staff", and the operators in `a OR b` are skipped.
+    """
+    groups: list[list[str]] = []
+    for term in _query_terms(query):
+        cleaned = term.strip('*"').strip()
+        if not cleaned or cleaned.lower() in _FTS_OPERATORS:
+            continue
+        groups.append(_term_variants(cleaned))
+    return groups
+
+
+def _count_matched_terms(name: str, raw_text: str, groups: list[list[str]]) -> int:
+    """How many of the query's terms appear in this component at all."""
+    haystack = f"{name}\n{raw_text}".lower()
+    normalized = _normalize(haystack)
+    return sum(
+        1
+        for variants in groups
+        if any(v in haystack or v in normalized for v in variants)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -347,90 +465,159 @@ class SearchEngine:
 
     def search(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
         """
-        Search indexed components using FTS5 keyword search.
+        Search indexed components for *query*.
 
-        If numpy is available, results are re-ranked using cosine similarity
-        against a bag-of-words representation of the query.
+        Terms are matched independently and results are ranked by how many of
+        them a component contains, so a multi-word query (in any language)
+        degrades to "best overlap" instead of returning nothing when no single
+        component holds every term.
+
+        Retrieval widens only as far as it has to:
+
+          1. FTS5 with all trigram-searchable terms AND-ed — the exact answer.
+          2. FTS5 with those terms OR-ed — partial matches, ranked by overlap.
+          3. LIKE scan requiring every term, then any term — reaches terms the
+             trigram index cannot represent (1–2 characters, e.g. "職員").
+
+        A query containing explicit FTS5 syntax (quotes, `*`, parentheses,
+        AND/OR/NOT/NEAR) is passed to FTS5 verbatim.
 
         Args:
             query: Search query string.
             limit: Maximum number of results to return.
 
         Returns:
-            List of result dicts with keys: name, type, file_path, snippet, score.
+            List of result dicts with keys: name, type, file_path, snippet,
+            score, matched_terms, yaml_spec.
         """
         conn = self._get_conn()
+        query = query.strip()
+        if not query:
+            return []
 
-        # Trigram FTS5 needs ≥3 characters; use LIKE directly for short queries
-        if len(query.strip()) < 3:
-            like_q = f"%{query}%"
-            rows = conn.execute(
-                """
-                SELECT name, type, file_path, yaml_spec, raw_text, 0 AS fts_score
-                FROM components
-                WHERE name LIKE ? OR raw_text LIKE ?
-                LIMIT ?
-                """,
-                (like_q, like_q, limit * 3),
-            ).fetchall()
-        else:
-            # Sanitize query for FTS5 (escape double-quotes)
-            safe_query = query.replace('"', '""')
+        groups = [_term_variants(t) for t in _query_terms(query)]
+        ranking = _ranking_groups(query)
+        # Over-fetch: ranking by term overlap needs more than `limit` rows to
+        # choose from, especially on the OR and LIKE paths.
+        pool = max(limit * 6, 30)
 
-            try:
-                rows = conn.execute(
-                    """
-                    SELECT c.name, c.type, c.file_path, c.yaml_spec, c.raw_text,
-                           fts.rank AS fts_score
-                    FROM components_fts fts
-                    JOIN components c ON c.id = fts.rowid
-                    WHERE components_fts MATCH ?
-                    ORDER BY fts.rank
-                    LIMIT ?
-                    """,
-                    (safe_query, limit * 3),  # over-fetch for re-ranking
-                ).fetchall()
-            except sqlite3.OperationalError:
-                # FTS5 query syntax error — fall back to LIKE search
-                like_q = f"%{query}%"
-                rows = conn.execute(
-                    """
-                    SELECT name, type, file_path, yaml_spec, raw_text, 0 AS fts_score
-                    FROM components
-                    WHERE name LIKE ? OR raw_text LIKE ?
-                    LIMIT ?
-                    """,
-                    (like_q, like_q, limit * 3),
-                ).fetchall()
+        rows: list[sqlite3.Row] = []
+
+        if _FTS_SYNTAX_RE.search(query):
+            rows = self._fts_rows(conn, query, pool)
+
+        if not rows and groups:
+            searchable = [g for g in groups if _is_trigram_searchable(g)]
+            if searchable:
+                exprs = [_fts_group(g) for g in searchable]
+                rows = self._fts_rows(conn, " AND ".join(exprs), pool)
+                if not rows and len(exprs) > 1:
+                    rows = self._fts_rows(conn, " OR ".join(exprs), pool)
+
+        if not rows and groups:
+            rows = self._like_rows(conn, groups, pool, require_all=True)
+            if not rows and len(groups) > 1:
+                rows = self._like_rows(conn, groups, pool, require_all=False)
 
         results: list[dict[str, Any]] = []
         for row in rows:
-            snippet = self._make_snippet(row["raw_text"], query)
-            score = float(row["fts_score"] or 0)
+            raw_text = row["raw_text"]
             results.append(
                 {
                     "name": row["name"],
                     "type": row["type"],
                     "file_path": row["file_path"],
-                    "snippet": snippet,
-                    "score": score,
+                    "snippet": self._make_snippet(raw_text, query),
+                    "score": float(row["fts_score"] or 0),
+                    "matched_terms": _count_matched_terms(
+                        row["name"], raw_text, ranking
+                    ),
                     "yaml_spec": row["yaml_spec"],
                 }
             )
 
-        # Re-rank with cosine similarity when numpy is available
         if _NUMPY_AVAILABLE and results:
-            results = self._rerank_with_cosine(query, results, conn)
+            self._attach_cosine(query, results, conn)
 
+        # Term overlap first, then semantic similarity, then FTS rank (lower
+        # is better in FTS5, and 0 on the LIKE paths).
+        results.sort(
+            key=lambda r: (
+                -r["matched_terms"],
+                -r.get("cosine_score", 0.0),
+                r["score"],
+            )
+        )
         return results[:limit]
 
-    def _rerank_with_cosine(
-        self,
-        query: str,
-        results: list[dict[str, Any]],
+    # ------------------------------------------------------------------
+    # Retrieval paths
+    # ------------------------------------------------------------------
+
+    _SELECT_FTS = """
+        SELECT c.name, c.type, c.file_path, c.yaml_spec, c.raw_text,
+               fts.rank AS fts_score
+        FROM components_fts fts
+        JOIN components c ON c.id = fts.rowid
+        WHERE components_fts MATCH ?
+        ORDER BY fts.rank
+        LIMIT ?
+    """
+
+    @staticmethod
+    def _fts_rows(
+        conn: sqlite3.Connection, expression: str, limit: int
+    ) -> list[sqlite3.Row]:
+        """Run an FTS5 MATCH, returning [] on a syntax error instead of raising."""
+        try:
+            return conn.execute(
+                SearchEngine._SELECT_FTS, (expression, limit)
+            ).fetchall()
+        except sqlite3.OperationalError as exc:
+            logger.debug("FTS5 rejected %r: %s", expression, exc)
+            return []
+
+    @staticmethod
+    def _like_rows(
         conn: sqlite3.Connection,
-    ) -> list[dict[str, Any]]:
-        """Re-rank FTS results using cosine similarity."""
+        groups: list[list[str]],
+        limit: int,
+        require_all: bool,
+    ) -> list[sqlite3.Row]:
+        """
+        Substring scan over name + raw_text.
+
+        This is the only path that can match a 1–2 character term, which the
+        trigram index cannot represent at all.
+        """
+        clauses: list[str] = []
+        params: list[Any] = []
+        for variants in groups:
+            per_variant = []
+            for variant in variants:
+                per_variant.append("(name LIKE ? OR raw_text LIKE ?)")
+                params += [f"%{variant}%", f"%{variant}%"]
+            clauses.append("(" + " OR ".join(per_variant) + ")")
+
+        joiner = " AND " if require_all else " OR "
+        sql = (
+            "SELECT name, type, file_path, yaml_spec, raw_text, 0 AS fts_score "
+            "FROM components WHERE " + joiner.join(clauses) + " LIMIT ?"
+        )
+        params.append(limit)
+        return conn.execute(sql, params).fetchall()
+
+    @staticmethod
+    def _attach_cosine(
+        query: str, results: list[dict[str, Any]], conn: sqlite3.Connection
+    ) -> None:
+        """
+        Annotate each result with its bag-of-words cosine score.
+
+        Used only as a tiebreaker behind term overlap: on its own it ranked a
+        component that merely shares vocabulary above one that matched every
+        query term.
+        """
         names = [r["name"] for r in results]
         placeholders = ",".join("?" * len(names))
         emb_rows = conn.execute(
@@ -439,29 +626,36 @@ class SearchEngine:
             f"WHERE c.name IN ({placeholders})",
             names,
         ).fetchall()
-
         emb_map = {r["name"]: r for r in emb_rows}
 
         for result in results:
             emb_row = emb_map.get(result["name"])
-            if emb_row:
-                vocab = json.loads(emb_row["vocab_json"])
-                doc_vec = json.loads(emb_row["vector_json"])
-                query_vec = _bag_of_words_vector(query, vocab)
-                result["cosine_score"] = _cosine_similarity(query_vec, doc_vec)
-            else:
+            if not emb_row:
                 result["cosine_score"] = 0.0
-
-        # Combine FTS rank and cosine score (lower FTS rank = better)
-        results.sort(key=lambda r: r["cosine_score"], reverse=True)
-        return results
+                continue
+            vocab = json.loads(emb_row["vocab_json"])
+            doc_vec = json.loads(emb_row["vector_json"])
+            query_vec = _bag_of_words_vector(query, vocab)
+            result["cosine_score"] = _cosine_similarity(query_vec, doc_vec)
 
     @staticmethod
     def _make_snippet(text: str, query: str, window: int = 150) -> str:
-        """Extract a text snippet around the first query term occurrence."""
+        """
+        Extract a text snippet around the first matching query term.
+
+        Every term is tried, not just the first one: with an OR match the
+        leading term is often the one that is absent, which used to pin the
+        snippet to the top of the spec and hide why the result was returned.
+        """
         lower_text = text.lower()
-        lower_query = query.lower().split()[0] if query.split() else ""
-        pos = lower_text.find(lower_query)
+        pos = -1
+        for variants in _ranking_groups(query):
+            for variant in variants:
+                pos = lower_text.find(variant)
+                if pos != -1:
+                    break
+            if pos != -1:
+                break
         if pos == -1:
             return text[:window].strip()
         start = max(0, pos - window // 2)
