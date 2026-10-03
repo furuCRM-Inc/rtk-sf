@@ -220,11 +220,56 @@ def test_recent_digest_respects_its_character_budget(tmp_path):
     assert "Hot files:" in digest
 
 
+def test_recent_digest_excludes_turns_that_have_aged_out(tmp_path):
+    """The behaviour that made the ordering test rot, pinned deliberately.
+
+    `recent_digest` rolls up first, so a turn more than 72h behind the clock is
+    no longer in `recent_3_days` and cannot appear. That is correct, but it is
+    also why a test holding absolute timestamps silently turns into an
+    assertion about an empty string as real time moves on.
+    """
+    manager = HistoryManager(tmp_path)
+    now = parse_ts("2026-09-29T10:00:00+00:00")
+    manager.record_turn("inside the window", files=["a.py"], timestamp=now - timedelta(hours=2))
+    manager.record_turn("aged out", files=["b.py"], timestamp=now - timedelta(days=5))
+
+    digest = manager.recent_digest(now=now)
+
+    assert "inside the window" in digest
+    assert "aged out" not in digest
+
+
+def test_recent_digest_is_empty_once_everything_has_aged_out(tmp_path):
+    manager = HistoryManager(tmp_path)
+    now = parse_ts("2026-09-29T10:00:00+00:00")
+    manager.record_turn("ancient", files=["a.py"], timestamp=now - timedelta(days=10))
+
+    assert manager.recent_digest(now=now) == ""
+
+
+def test_recent_digest_defaults_to_the_wall_clock(tmp_path):
+    """Omitting `now` must keep working — it is how the pre-turn hook calls it."""
+    manager = HistoryManager(tmp_path)
+    manager.record_turn("just happened", files=["a.py"])
+
+    assert "just happened" in manager.recent_digest()
+
+
 def test_recent_digest_is_newest_first(tmp_path):
+    """Both turns must stay inside the 72h window for ordering to be observable.
+
+    This test used to pin `now` to an absolute date. `recent_digest` rolls up
+    before rendering, so once that date fell more than 72h behind the real
+    clock both turns aged out, the digest came back empty, and the assertion
+    failed with "substring not found" — a failure that says nothing about
+    ordering. The clock is injected instead, so the window is fixed relative
+    to the timestamps and the test cannot rot.
+    """
     manager = HistoryManager(tmp_path)
     now = parse_ts("2026-09-29T10:00:00+00:00")
     manager.record_turn("older", files=["a.py"], timestamp=now - timedelta(hours=2))
     manager.record_turn("newer", files=["b.py"], timestamp=now)
 
-    digest = manager.recent_digest()
+    digest = manager.recent_digest(now=now)
+    assert "newer" in digest and "older" in digest
     assert digest.index("newer") < digest.index("older")

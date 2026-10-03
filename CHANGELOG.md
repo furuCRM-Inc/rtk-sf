@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+**`recent_digest` could not be tested without depending on the current date**
+
+`tests/test_memory_history.py::test_recent_digest_is_newest_first` had been
+failing on every run. The implementation was correct: `recent_digest` calls
+`roll_up` before rendering, so a turn more than 72h behind the clock is no
+longer in `recent_3_days`. The test pinned `now` to an absolute date, and once
+that date fell outside the window both turns aged out, the digest came back
+empty, and an assertion about *ordering* failed with "substring not found".
+
+`recent_digest` now accepts `now`, the same injectable clock `roll_up` and
+`week_series` already take, so the roll-up window can be fixed relative to the
+timestamps under test. The method keeps reading the wall clock when `now` is
+omitted, which is how `hooks/memory_pre_turn` calls it.
+
+Three tests added alongside the repair, pinning the boundary that caused the
+confusion rather than leaving it as a trap: a turn past 72h is excluded, a
+digest of only aged-out turns is empty, and the default wall-clock path still
+works.
+
 ### Planned
 - Permission Set indexing
 - Custom Label indexing

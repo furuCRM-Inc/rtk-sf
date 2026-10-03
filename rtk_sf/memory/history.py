@@ -338,14 +338,19 @@ class HistoryManager:
 
         return [series[key] for key in day_series(now, days)]
 
-    def recent_digest(self, max_chars: int = 600) -> str:
+    def recent_digest(self, max_chars: int = 600, now: Any = None) -> str:
         """
         A compact plain-text digest of `recent_3_days` for prompt injection.
 
         Budgeted by characters (~4 chars/token) so the caller can keep the
         injection under a token ceiling.
+
+        `now` overrides the clock used for the roll-up, the same way `roll_up`
+        and `week_series` already allow. Without it the method reads the wall
+        clock, which makes any test that supplies absolute timestamps depend on
+        the date it runs on.
         """
-        self.roll_up()
+        self.roll_up(now)
         events = self.store["buckets"]["recent_3_days"]
         if not events:
             return ""
