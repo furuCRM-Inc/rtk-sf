@@ -313,7 +313,7 @@ Or use virtual environments per project:
 ```bash
 cd /projects/org-a
 python -m venv .venv
-.venv/bin/pip install rtk-sf
+.venv/bin/pip install "rtk-sf[all] @ git+https://github.com/furuCRM-Inc/rtk-sf.git@v0.11.0"
 claude mcp add rtk-sf -- /projects/org-a/.venv/bin/python -m rtk_sf serve
 ```
 

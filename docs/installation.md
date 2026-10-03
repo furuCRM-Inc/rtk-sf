@@ -20,8 +20,8 @@ curl -sSL https://raw.githubusercontent.com/furuCRM-Inc/rtk-sf/main/scripts/inst
 ### Option B: Manual
 
 ```bash
-# 1. Install rtk-sf
-pip install rtk-sf
+# 1. Install rtk-sf (not published on PyPI — install from git)
+pip install "rtk-sf[all] @ git+https://github.com/furuCRM-Inc/rtk-sf.git@v0.11.0"
 
 # 2. Navigate to your Salesforce project
 cd /path/to/your/salesforce-project
@@ -37,7 +37,7 @@ claude mcp add rtk-sf -- python -m rtk_sf serve
 
 ```bash
 rtk-sf --version
-# rtk-sf 0.1.0
+# rtk-sf 0.11.0
 
 rtk-sf index --help
 ```
@@ -51,10 +51,10 @@ rtk-sf index --help
 python3 --version
 
 # Install
-pip3 install rtk-sf
+pip3 install "rtk-sf[all] @ git+https://github.com/furuCRM-Inc/rtk-sf.git@v0.11.0"
 
 # Or with explicit Python version
-python3.11 -m pip install rtk-sf
+python3.11 -m pip install "rtk-sf[all] @ git+https://github.com/furuCRM-Inc/rtk-sf.git@v0.11.0"
 
 # Index your project
 cd /path/to/salesforce-project
@@ -77,7 +77,7 @@ sudo dnf install python3.9   # Fedora
 # or
 sudo yum install python39     # RHEL/CentOS
 
-python3.9 -m pip install rtk-sf
+python3.9 -m pip install "rtk-sf[all] @ git+https://github.com/furuCRM-Inc/rtk-sf.git@v0.11.0"
 python3.9 -m rtk_sf index
 ```
 
@@ -89,7 +89,7 @@ python3.9 -m rtk_sf index
 
 ```powershell
 # Install
-pip install rtk-sf
+pip install "rtk-sf[all] @ git+https://github.com/furuCRM-Inc/rtk-sf.git@v0.11.0"
 
 # Navigate to project
 cd C:\path\to\your\salesforce-project
@@ -105,7 +105,7 @@ python -m rtk_sf index
 
 ```bash
 # Install rtk-sf in WSL
-pip install rtk-sf
+pip install "rtk-sf[all] @ git+https://github.com/furuCRM-Inc/rtk-sf.git@v0.11.0"
 
 # Mount Windows project (if needed)
 cd /mnt/c/path/to/salesforce-project
@@ -134,7 +134,7 @@ source .venv/bin/activate      # macOS/Linux
 .venv\Scripts\activate         # Windows
 
 # Install
-pip install rtk-sf
+pip install "rtk-sf[all] @ git+https://github.com/furuCRM-Inc/rtk-sf.git@v0.11.0"
 
 # Index
 rtk-sf index
@@ -153,7 +153,7 @@ Install numpy to enable cosine similarity re-ranking of search results:
 ```bash
 pip install "rtk-sf[vector]"
 # or
-pip install rtk-sf numpy
+pip install "rtk-sf[all] @ git+https://github.com/furuCRM-Inc/rtk-sf.git@v0.11.0" numpy
 ```
 
 When numpy is available, `search_codebase` uses cosine similarity as a

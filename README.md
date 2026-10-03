@@ -10,6 +10,8 @@
 
 > **Stop wasting tokens on raw file reads. Give your AI agent a pre-indexed, multi-language knowledge layer instead.**
 
+**Manual: [English](docs/manual.md) · [日本語](docs/manual.ja.md)**
+
 rtk-sf started as a Salesforce token-reduction tool and has grown into a **full multi-language framework**. It indexes your codebase, compresses class structure into structural skeletons, and serves everything via MCP stdio — so Claude Code reads 150 tokens instead of 15,000.
 
 **v0.8.0** adds Java support alongside Python, TypeScript, and Kotlin — covering the full enterprise stack. **v0.9.0** adds `nl_to_soql` — a deterministic natural-language-to-SOQL compiler ported from flash-agent-stack's Jev engine — plus indexer field-type and schema-validation fixes.
@@ -53,8 +55,8 @@ Cost (@$3/1M):    $0.036                Cost (@$3/1M):    $0.0012
 # Install (Salesforce + all language tracks)
 pip install "rtk-sf[all] @ git+https://github.com/furuCRM-Inc/rtk-sf.git"
 
-# Or from PyPI when available
-pip install rtk-sf
+# PyPI is not published yet — `pip install rtk-sf` returns 404.
+# Use the git URL above.
 
 # Salesforce: index your project
 python3 -m rtk_sf index
@@ -235,9 +237,9 @@ rtk-sf automatically routes to the correct track based on file extension or CLI 
 
 ---
 
-## MCP Tools Reference (26 tools)
+## MCP Tools Reference (31 tools)
 
-### Salesforce (17 tools)
+### Salesforce (19 tools)
 
 | Tool | Description |
 |---|---|
@@ -256,8 +258,22 @@ rtk-sf automatically routes to the correct track based on file extension or CLI 
 | `get_roi_stats` | Token/cost savings report for this session |
 | `extract_image_text` | OCR text extraction from a screenshot or image |
 | `annotate_component` | Write business-logic annotations back to the index |
+| `get_record_types` | Compressed RecordType definitions for an object — no raw XML |
+| `get_lwc_targets` | LWC component targets from `*.js-meta.xml`, optionally only those exposed |
 | `export_system_documentation` | **(v0.10.0)** Compile the system document set — function matrix, use cases, Mermaid sequence diagrams, business scenarios, object definitions, metadata inventory, screen list, ERD — straight to disk; only a one-line confirmation returns to the agent |
 | `get_project_timeline` | **(v0.10.0)** Read the living-memory project history for one scope (`recent_3_days`, `last_7_days`, `current_month`, `fiscal_quarters`, `fiscal_years`, `all`) |
+
+### Hybrid local worker (3 tools)
+
+| Tool | Description |
+|---|---|
+| `hybrid_plan` | **(v0.11.0)** Score every method in an Apex class and route it between a local worker model and Claude. Scoring is derived from source — cyclomatic-style score, LOC, SOQL/DML counts, nesting — with risk signals (DML/SOQL in loops, `Savepoint`, partial DML, callouts, `without sharing`, FLS/CRUD, batch Apex) that force a method to Claude regardless of size |
+| `hybrid_delegate` | **(v0.11.0)** Run a batch of method-scoped Apex edits on the local model. Output is gated before any write: untruncated, exactly the requested method, balanced braces/literals, and every other method body byte-identical |
+| `hybrid_review` | **(v0.11.0)** Record a review finding as a few-shot example for the next local attempt, or read the handover delta |
+
+Requires a local Ollama-compatible code model and is **off by default** — rtk-sf
+works fully offline with nothing listening. See
+[`docs/manual.md` §6](docs/manual.md#6-local-delegation-optional-new-in-0110).
 
 ### Java (2 tools)
 
@@ -360,7 +376,7 @@ rtk_sf/
 
 ## Installation Options
 
-> **Not yet published on PyPI** — install straight from GitHub (see the "when available" note in Quick Start). `pip install rtk-sf` will not find it.
+> **Not yet published on PyPI** — install straight from GitHub, as in [Quick Start](#quick-start). A bare `pip install rtk-sf` returns a 404.
 
 ```bash
 # Salesforce only (minimal)
@@ -410,11 +426,11 @@ Check `rtk-sf --version` (or the `serverInfo.version` field in the MCP `initiali
 # Index your project (run from the Salesforce project root)
 python3 -m rtk_sf index
 
-# Re-index after code changes
+# Re-index after code changes (incremental — only changed files)
 python3 -m rtk_sf index
 
-# Dry-run: see what would be indexed
-python3 -m rtk_sf dry-run
+# Rebuild everything
+python3 -m rtk_sf index --force
 ```
 
 The indexer scans for:
