@@ -19,6 +19,128 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.11.0] — 2026-10-03
+
+Adds hybrid orchestration: Apex work is routed method-by-method between a local
+code model and Claude, with a structural gate that lets Claude trust a verdict
+instead of reading generated code. Three MCP tools: `hybrid_plan`,
+`hybrid_delegate`, `hybrid_review`.
+
+No new dependencies — the worker client is stdlib `urllib`. The documented
+upgrade command keeps `--no-deps`.
+
+### Added
+
+**Deterministic method-level routing (`rtk_sf/hybrid/complexity.py`)**
+
+Each method is scored from its own source, never from a hand-written
+`complexity: LOW` label — a label drifts the moment the code changes, and a
+stale one routes a high-blast-radius method to a 7B. Spans come from
+`skeleton.py`'s comment- and string-aware brace scanner, so a brace inside
+`'a { b'` cannot shift a body boundary.
+
+- **score** — cyclomatic-style, weighted for SOQL, DML, nesting and length.
+- **blockers** force HIGH regardless of score: SOQL/DML in loops,
+  `Savepoint`/rollback, partial DML, callouts, `without sharing`, FLS/CRUD
+  checks, batch Apex, email send. A three-line method that opens a Savepoint is
+  not simple at any length.
+- **flags** add weight without vetoing the route. `@AuraEnabled` lives here:
+  measured against a real 179-method project, treating it as a blocker forced
+  60 methods (34%) to Claude, which makes delegation pointless on any
+  LWC-based project.
+- **constructors are excluded.** `_METHOD_SIG` cannot express "has no return
+  type", so a constructor matches only by capturing an access modifier as its
+  return type. A worker told to keep the signature will "fix" that by adding
+  one, silently converting a constructor into a method. 20 such spans exist in
+  the verification corpus.
+
+**Splice gate (`rtk_sf/hybrid/gate.py`)**
+
+Nothing reaches a `.cls` file until the completion is untruncated, parses as
+exactly one method with the requested name, balances braces/parens/literals
+(comment- and string-aware — `code.count("{")` miscounts any brace inside a
+literal and would approve broken source), triggers no ERROR-level
+`dry_run` rule, and — the check that earns the right not to read the output —
+leaves **every other method body byte-identical**, none added, none removed.
+That last one is what catches a model that rewrote the whole class and dropped
+three methods.
+
+The gate is structural, not semantic. It cannot tell you the logic is right and
+does not claim to; run the class's tests for behaviour.
+
+**Handover state (`rtk_sf/hybrid/state.py`)**
+
+Lives in `.rtk-sf/handover/`, **not** `.rtk-sf/specs/`. Spec files are
+generated: `Indexer._write_spec` overwrites them wholesale and `watcher.py`
+reindexes on every save, so state written into a spec is erased by the very
+edit it was recording. Writes are atomic (`os.replace`) and
+`allow_unicode=True`, so Japanese summaries stay readable instead of becoming
+`\uXXXX`. `render_delta(since)` returns only records newer than the caller's
+watermark.
+
+**Correction memory — in-context learning, no finetune**
+
+Failures become few-shot examples in two tiers. **Active** (while unresolved):
+the last 2 critiques verbatim, each with the failing *method body*. **Promoted**
+(on success): bad code dropped, critique distilled into a one-line, code-free,
+deduplicated project rule that applies to every other method.
+
+Storing the whole file per failure does not fit: three failures on a 300-LOC
+class is ~12,600 tokens of wrong code against a worker window that defaults to
+4,096. Keeping every failure forever also biases a small model toward the wrong
+shapes it keeps being shown, while deleting on success throws away the only
+durable artifact. Gate failures are recorded automatically at zero Claude cost;
+`hybrid_review` is for semantic findings the gate cannot see.
+
+**Worker client (`rtk_sf/hybrid/worker.py`)**
+
+Ollama-compatible, stdlib only, lazily imported and opt-in — rtk-sf still runs
+fully offline with no model calls. Configuration: `RTK_SF_WORKER_URL`,
+`RTK_SF_WORKER_MODEL` (also tool arguments).
+
+Pin the model for a finetune. Auto-detection ranks by known coder-model name
+substrings, so a custom tag such as `qwen2.5-coder-7b-nexusmesh` matches
+nothing and is rejected as "no code-tuned model" despite being the right
+worker.
+
+Measured against qwen2.5-coder:7b (Q4_K_M) on Ollama 0.21.2, Apple silicon,
+and encoded as defaults:
+
+| Property | Measured | Consequence |
+|---|---|---|
+| Throughput | 13.3 tok/s | default timeout 600 s — a 60 s timeout aborts a whole-file task *after* paying its compute |
+| Served context | 4,096 (trained 32,768) | `num_ctx` always set explicitly; unset means silent truncation of prompt *and* completion |
+| Markdown fences | emitted despite explicit instruction | fences stripped by the parser, not trusted to the prompt |
+| Model tag | `qwen2.5-coder:7b` | the tag is kept whole; `split(":")[-1]` yields `"7b"`, which 404s every call |
+| Unreachable host | 3.01 s per probe | detection cached per process (30 s negative / 300 s positive) — the MCP server builds a fresh orchestrator per call |
+
+### Token impact
+
+On a real 206-line controller: `hybrid_plan` returns ~351 tokens where reading
+the class costs ~2,861 (**88% fewer**); a handover delta is ~63 tokens against
+~502 for the full record (**87% fewer**).
+
+Note on prompt caching: splitting a spec into a "static prefix" and a "dynamic
+tail" does **not** preserve Claude's cache. Caching is a prefix match over the
+rendered request (`tools` → `system` → `messages`), and a file arrives as a tool
+result appended at the *end* of `messages` — so re-reading it appends a full
+fresh copy regardless of where the volatile section sits inside the file.
+Measured over 6 simulated turns, static-first and dynamic-first layouts append
+**byte-identical** totals (11,844 B each); delta reads append 534 B, 95% less.
+What reduces cost is returning fewer tokens, which is what the delta read,
+method-scoped prompts and batched results do. Rationale and the three
+cache constraints that shape the tool surface: `docs/hybrid-orchestration.md`.
+
+### Testing
+
+30 tests in `tests/test_hybrid.py`, including a corpus-level regression that
+runs every method in a real 25-file project through the splice path and
+requires the file back byte-identical. That test is what caught two defects a
+synthetic fixture missed: lost method indentation (valid Apex, so no syntax
+check would ever flag it) and constructors being routed to the worker.
+
+---
+
 ## [0.10.3] — 2026-10-02
 
 Fixes [#31](https://github.com/furuCRM-Inc/rtk-sf/issues/31), the follow-up verification
