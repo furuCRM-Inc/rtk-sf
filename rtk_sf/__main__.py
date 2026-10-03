@@ -22,11 +22,112 @@ import shutil
 import sys
 from pathlib import Path
 
-# CLAUDE.md markers used by install and upgrade detection
-_MARKER_V5_1 = "Image / screenshot rule"  # v0.5.1 — inline image guidance added
-_MARKER_V5 = "get_roi_stats"              # v0.5 — 14-tool block, missing image rule
-_MARKER_V4 = "get_class_skeleton"         # v0.4 — 9-tool block
-_MARKER_BASE = "## Code Search"
+# CLAUDE.md block delimiters.
+#
+# The block is bounded by HTML comments carrying the version that wrote it, so
+# install can compare versions instead of guessing from prose. The previous
+# scheme keyed off a phrase ("Image / screenshot rule") that was last updated
+# in v0.5.1: any newer CLAUDE.md failed the check, so install concluded the file
+# was *older* and overwrote it with the v0.5.1 template — a silent downgrade
+# (#35). A version stamp can express "newer than me"; a phrase cannot.
+_BLOCK_BEGIN = "<!-- rtk-sf:begin "
+_BLOCK_END = "<!-- rtk-sf:end -->"
+_MARKER_BASE = "## Code Search"  # legacy, unstamped blocks from <= v0.11.0
+
+# Task phrasing for the tools worth calling out by use case. Tools absent from
+# this map still reach the table — the row is derived from the tool's own
+# description — so a newly registered tool can never silently go missing.
+_TOOL_TASKS: dict[str, str] = {
+    "search_codebase": "Find a component by name or keyword",
+    "query_compressed_spec": "Read a component spec / fields / methods",
+    "get_relations": "Blast-radius before editing",
+    "list_components": "List all Apex classes / objects / flows",
+    "annotate_component": "Write discovered business logic back",
+    "get_class_skeleton": "Read an Apex class before editing (surgical)",
+    "sf_command": "Deploy / retrieve / run tests silently",
+    "get_object_schema": "Get object field list for data creation",
+    "soql_query": "Inspect existing records (sample only)",
+    "nl_to_soql": "Answer a natural-language data question directly",
+    "get_record_types": "Read RecordType definitions for an object",
+    "get_lwc_targets": "List LWC components and their targets",
+    "export_system_documentation": "Generate system docs / diagrams (to disk)",
+    "get_project_timeline": "Ask what has been worked on recently",
+    "compact_prompt": "Compact a bilingual prompt before sending",
+    "validate_apex": "Dry-run Apex code before deploy",
+    "validate_soql": "Dry-run SOQL before executing",
+    "extract_image_text": "Extract text from a screenshot/image",
+    "get_roi_stats": "View token/dollar savings this session",
+    "read_data_file": "Preview a CSV / JSON / JSONL file",
+    "hybrid_plan": "Route Apex methods between a local worker and yourself",
+    "hybrid_delegate": "Run method-scoped Apex edits on the local worker",
+    "hybrid_review": "Record a review finding for the local worker",
+    "get_java_skeleton": "Read a Java file (structural)",
+    "run_java_build": "Run a Maven / Gradle build",
+    "get_kotlin_skeleton": "Read a Kotlin file (structural)",
+    "run_gradle": "Run a Gradle task",
+    "get_ts_skeleton": "Read a TypeScript / JS file (structural)",
+    "run_js_tests": "Run Jest / Vitest / Playwright tests",
+    "get_python_skeleton": "Read a Python file (structural)",
+    "run_python_tests": "Run pytest",
+}
+
+
+def _version_tuple(text: str) -> tuple[int, ...]:
+    """Parse a dotted version into a comparable tuple; unparsable -> (0,)."""
+    parts: list[int] = []
+    for chunk in text.strip().split("."):
+        digits = "".join(c for c in chunk if c.isdigit())
+        if not digits:
+            break
+        parts.append(int(digits))
+    return tuple(parts) or (0,)
+
+
+def _stamped_version(text: str) -> tuple[int, ...] | None:
+    """Return the version stamped on an existing rtk-sf block, if any."""
+    start = text.find(_BLOCK_BEGIN)
+    if start == -1:
+        return None
+    end = text.find("-->", start)
+    if end == -1:
+        return None
+    return _version_tuple(text[start + len(_BLOCK_BEGIN) : end])
+
+
+def _build_tool_table() -> str:
+    """Render the tool table from the live registry.
+
+    Generated rather than hardcoded so it cannot drift from the tools the
+    package actually serves — the failure in #35, where a literal table listed
+    14 of 31 tools. Row order follows `_TOOL_TASKS` for the curated entries,
+    then registry order for anything new.
+    """
+    from rtk_sf.mcp_server import _TOOLS
+
+    registered = {t["name"]: t for t in _TOOLS}
+    rows: list[str] = []
+    seen: set[str] = set()
+
+    def _row(name: str, task: str) -> str:
+        tool = registered[name]
+        args = tool.get("inputSchema", {}).get("required", [])
+        call = f"{name}({', '.join(args)})" if args else f"{name}()"
+        return f"| {task} | `{call}` |"
+
+    for name, task in _TOOL_TASKS.items():
+        if name in registered:
+            rows.append(_row(name, task))
+            seen.add(name)
+
+    for name in registered:
+        if name in seen:
+            continue
+        # Fall back to the first sentence of the tool's own description.
+        desc = " ".join(registered[name]["description"].split())
+        task = desc.split(". ")[0].rstrip(".")
+        rows.append(_row(name, task[:70]))
+
+    return "\n".join(rows)
 
 
 def _info(msg: str) -> None:
@@ -53,79 +154,121 @@ def _detect_sf_source(project_root: Path) -> Path | None:
     return None
 
 
-def _patch_claude_md(project_root: Path) -> None:
-    claude_md = project_root / "CLAUDE.md"
+def _render_claude_md_block() -> str:
+    """The rtk-sf guidance block, stamped with the version that wrote it."""
+    from rtk_sf import __version__
 
-    if claude_md.exists() and _MARKER_V5_1 in claude_md.read_text(encoding="utf-8"):
-        _success("CLAUDE.md already has rtk-sf v0.5.1 instructions. Skipping.")
-        return
-
-    # Strip old block (v0.3 / v0.4 / v0.5) and rewrite with latest tool list
-    if claude_md.exists() and _MARKER_BASE in claude_md.read_text(encoding="utf-8"):
-        text = claude_md.read_text(encoding="utf-8")
-        if _MARKER_V5 in text and _MARKER_V4 in text:
-            _warn("Upgrading CLAUDE.md from v0.5 to v0.5.1 (inline image guidance)...")
-        elif _MARKER_V4 in text:
-            _warn("Upgrading CLAUDE.md from v0.4 to v0.5.1 (5 new tools + image rule)...")
-        else:
-            _warn("Upgrading CLAUDE.md from v0.3 to v0.5.1...")
-        lines = claude_md.read_text(encoding="utf-8").splitlines()
-        in_block = False
-        kept: list[str] = []
-        for line in lines:
-            if line.startswith(_MARKER_BASE):
-                in_block = True
-            elif in_block and line.startswith("## "):
-                in_block = False
-            if not in_block:
-                kept.append(line)
-        claude_md.write_text("\n".join(kept), encoding="utf-8")
-
-    block = """
+    return f"""{_BLOCK_BEGIN}{__version__} -->
 ## Code Search & Data — Use rtk-sf First (Required)
 
 This project is indexed by **rtk-sf**. Always use the MCP tools before reading raw files or calling sf CLI:
 
 | Task | Tool to call |
 |---|---|
-| Find a component by name or keyword | `search_codebase(query)` |
-| Read a component spec / fields / methods | `query_compressed_spec(component_name)` |
-| Blast-radius before editing | `get_relations(component_name)` |
-| List all Apex classes / objects / flows | `list_components(type)` |
-| Write discovered business logic back | `annotate_component(component_name, key, value)` |
-| Read an Apex class before editing (surgical) | `get_class_skeleton(component_name, focus_methods)` |
-| Deploy / retrieve / run tests silently | `sf_command(action, target_org, ...)` |
-| Get object field list for data creation | `get_object_schema(object_name)` |
-| Inspect existing records (sample only) | `soql_query(query, target_org, sample_size)` |
-| Compact a bilingual prompt before sending | `compact_prompt(text)` |
-| Dry-run Apex code before deploy | `validate_apex(code)` |
-| Dry-run SOQL before executing | `validate_soql(query)` |
-| Extract text from a screenshot/image | `extract_image_text(image_path)` |
-| View token/dollar savings this session | `get_roi_stats()` |
+{_build_tool_table()}
 
 **Never** do these directly — use the tool instead:
-- Read a raw .cls file       → `get_class_skeleton`
-- sf sobject describe        → `get_object_schema`
-- sf data query              → `soql_query`
-- sf project deploy start    → `sf_command(action="deploy")`
-- Read an inline pasted image with native vision → ask for the file path, then `extract_image_text(path)`
+- Read a raw .cls file                      -> `get_class_skeleton`
+- sf sobject describe                       -> `get_object_schema`
+- sf data query                             -> `soql_query`
+- sf project deploy start                   -> `sf_command(action="deploy")`
+- Any pipeline scan over recordTypes/, fields/, or layouts/ -> `get_record_types` or `get_object_schema`
+- grep/cat/find against lwc/*/*.js-meta.xml -> `get_lwc_targets()`
+- Hand-writing architecture docs or diagrams -> `export_system_documentation`
+- Reading git log to reconstruct recent work -> `get_project_timeline`
+- Read an inline pasted image with native vision -> ask for the file path, then `extract_image_text(path)`
 
 **Image / screenshot rule:** `extract_image_text` requires a file path on disk.
 If the user pastes an image inline without a path, reply:
 "To save vision tokens, please share the file path (e.g. `~/Downloads/screenshot.png`) so I can run local OCR instead."
 
+For natural-language data questions, try `nl_to_soql` **before** reaching for
+`get_object_schema` plus a hand-written `soql_query` — it is a deterministic
+compiler with no model call inside it. Fall back to the manual path only when it
+returns `{{"intent": "UNKNOWN"}}`. `RECORD_UPDATE` results are proposals only —
+never execute them as DML without confirming with the user first.
+
 If search returns no results, re-index with: `python3 -m rtk_sf index`
 Do NOT use `npx rtk-sf` — rtk-sf is a Python package, not npm.
-"""
+{_BLOCK_END}"""
 
-    if claude_md.exists():
-        original = claude_md.read_text(encoding="utf-8")
-        first_line, _, rest = original.partition("\n")
-        claude_md.write_text(f"{first_line}\n{block}\n{rest}", encoding="utf-8")
-        _success("CLAUDE.md updated with rtk-sf tool instructions.")
-    else:
-        claude_md.write_text(f"# Salesforce Project\n{block}\n", encoding="utf-8")
+
+def _patch_claude_md(project_root: Path) -> None:
+    """Insert or refresh the rtk-sf block in CLAUDE.md.
+
+    Three rules, all of them consequences of #35:
+
+    * **Never write older content over newer.** The block carries the version
+      that wrote it; if the file's stamp is at or above the running version, the
+      file is left untouched. A user on a newer rtk-sf cannot be downgraded by
+      an older one.
+    * **Never move the user's content.** The block is replaced where it already
+      sits. The previous implementation re-inserted it after line 1, reordering
+      the document.
+    * **Always keep a copy.** `CLAUDE.md.rtk-bak` is written before any change,
+      because this file is hand-maintained guidance, not a generated artifact.
+    """
+    from rtk_sf import __version__
+
+    claude_md = project_root / "CLAUDE.md"
+    block = _render_claude_md_block()
+    current = _version_tuple(__version__)
+
+    if not claude_md.exists():
+        claude_md.write_text(f"# Salesforce Project\n\n{block}\n", encoding="utf-8")
         _success("CLAUDE.md created with rtk-sf tool instructions.")
+        return
+
+    text = claude_md.read_text(encoding="utf-8")
+    stamped = _stamped_version(text)
+
+    if stamped is not None and stamped >= current:
+        if stamped > current:
+            _warn(
+                f"CLAUDE.md was written by rtk-sf {'.'.join(map(str, stamped))}, "
+                f"newer than this install ({__version__}). Leaving it alone."
+            )
+        else:
+            _success(f"CLAUDE.md already current (rtk-sf {__version__}). Skipping.")
+        return
+
+    backup = claude_md.with_suffix(".md.rtk-bak")
+    backup.write_text(text, encoding="utf-8")
+
+    if stamped is not None:
+        # Stamped block: replace exactly that span, leaving everything else.
+        begin = text.index(_BLOCK_BEGIN)
+        close = text.find(_BLOCK_END)
+        if close == -1:
+            updated = text[:begin] + block
+        else:
+            updated = text[:begin] + block + text[close + len(_BLOCK_END) :]
+        _warn(
+            f"Upgrading CLAUDE.md block from rtk-sf "
+            f"{'.'.join(map(str, stamped))} to {__version__}..."
+        )
+    elif _MARKER_BASE in text:
+        # Legacy unstamped block: replace from its heading to the next heading,
+        # in place. Content before and after is preserved verbatim.
+        lines = text.splitlines(keepends=True)
+        begin_idx = next(i for i, ln in enumerate(lines) if ln.startswith(_MARKER_BASE))
+        end_idx = len(lines)
+        for i in range(begin_idx + 1, len(lines)):
+            if lines[i].startswith("## "):
+                end_idx = i
+                break
+        updated = "".join(lines[:begin_idx]) + block + "\n\n" + "".join(lines[end_idx:])
+        _warn(f"Upgrading unstamped CLAUDE.md block to rtk-sf {__version__}...")
+    else:
+        # No rtk-sf block at all — append rather than displace the first line.
+        updated = text.rstrip("\n") + f"\n\n{block}\n"
+        _warn("Adding the rtk-sf block to CLAUDE.md...")
+
+    claude_md.write_text(updated, encoding="utf-8")
+    _success(
+        f"CLAUDE.md updated with rtk-sf {__version__} tool instructions "
+        f"(previous version saved as {backup.name})."
+    )
 
 
 _OCR_MODULE = "rtk_sf.hooks.ocr_intercept"
@@ -135,8 +278,51 @@ _MEMORY_POST_MODULE = "rtk_sf.hooks.memory_post_turn"
 
 
 def _make_hook_cmd(module: str) -> str:
-    """Build hook command using sys.executable — the Python that has rtk_sf installed."""
+    """Build the hook command, preferring a portable `python3` invocation.
+
+    `.claude/settings.json` is commonly committed and shared across a team, so
+    baking in `sys.executable` writes one developer's interpreter path into
+    everyone's config. Worse, it is whichever interpreter happened to run
+    install — observed in #35 as an unrelated ESP-IDF environment that was
+    merely first on PATH.
+
+    So: use plain `python3` when that interpreter can actually import rtk_sf,
+    and fall back to the absolute path only when it cannot (a venv or a
+    non-default interpreter), where the absolute path is genuinely required.
+    """
+    if _python3_has_rtk_sf():
+        return f"python3 -m {module}"
     return f"{sys.executable} -m {module}"
+
+
+def _python3_has_rtk_sf() -> bool:
+    """True when a bare `python3` can import rtk_sf (cached per process)."""
+    global _PYTHON3_OK
+    if _PYTHON3_OK is None:
+        import shutil
+        import subprocess
+
+        exe = shutil.which("python3")
+        if exe is None:
+            _PYTHON3_OK = False
+        elif Path(exe).resolve() == Path(sys.executable).resolve():
+            _PYTHON3_OK = True  # same interpreter; no need to spawn
+        else:
+            try:
+                _PYTHON3_OK = (
+                    subprocess.run(
+                        [exe, "-c", "import rtk_sf"],
+                        capture_output=True,
+                        timeout=15,
+                    ).returncode
+                    == 0
+                )
+            except (OSError, subprocess.SubprocessError):
+                _PYTHON3_OK = False
+    return _PYTHON3_OK
+
+
+_PYTHON3_OK: bool | None = None
 
 
 def _patch_claude_settings(project_root: Path) -> None:
@@ -248,7 +434,11 @@ def _patch_claude_settings(project_root: Path) -> None:
         changed = True
 
     if changed:
-        settings_path.write_text(_json.dumps(config, indent=2), encoding="utf-8")
+        # Trailing newline: the file is commonly committed, and dropping it
+        # shows up as a spurious "\ No newline at end of file" in every diff.
+        settings_path.write_text(
+            _json.dumps(config, indent=2) + "\n", encoding="utf-8"
+        )
         _success(
             ".claude/settings.json updated with rtk-sf hooks "
             "(OCR intercept, prompt compactor, living memory)."
@@ -771,6 +961,20 @@ def main() -> None:
     # This lets older installed versions (that don't have 'update' registered)
     # still self-upgrade via `python3 -m rtk_sf update`.
     if len(sys.argv) >= 2 and sys.argv[1] == "update":
+        # The intercept parser sets add_help=False so it can tolerate unknown
+        # flags, which also means it swallows -h/--help — so `update --help`
+        # used to *perform* the upgrade and re-run install. A help flag must
+        # never have side effects (#35), so it is handled before anything runs.
+        if any(flag in sys.argv[2:] for flag in ("-h", "--help")):
+            print(
+                "usage: rtk-sf update [-h] [--project-root DIR]\n\n"
+                "Upgrade rtk-sf to the latest main, then re-run install\n"
+                "(index the project, refresh the CLAUDE.md block, wire hooks).\n\n"
+                "options:\n"
+                "  -h, --help          show this help message and exit\n"
+                "  --project-root DIR  project to set up after upgrading (default: .)\n"
+            )
+            sys.exit(0)
         import argparse as _ap
         _p = _ap.ArgumentParser(add_help=False)
         _p.add_argument("--project-root", default=".")

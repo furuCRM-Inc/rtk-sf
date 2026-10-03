@@ -9,6 +9,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+**`rtk-sf install` downgraded a project's CLAUDE.md
+([#35](https://github.com/furuCRM-Inc/rtk-sf/issues/35))**
+
+`_patch_claude_md` wrote a template hardcoded at v0.5.1 — 14 tools out of the
+31 the package registers — and decided whether a file was current by looking
+for the prose marker `"Image / screenshot rule"`, last updated in that release.
+Any newer CLAUDE.md failed that check, so install concluded it was *older* and
+overwrote it, silently deleting the guidance for `nl_to_soql`,
+`get_record_types`, `get_lwc_targets`, `export_system_documentation`,
+`get_project_timeline` and all five pipeline-scan guards. Same defect class as
+[#31](https://github.com/furuCRM-Inc/rtk-sf/issues/31): a hand-maintained
+version marker that stopped being maintained.
+
+- The tool table is now **generated from the live tool registry**, so it cannot
+  drift from what the package serves. A test asserts every registered tool
+  appears in it, which is what keeps it true as tools are added.
+- The block is delimited by `<!-- rtk-sf:begin <version> -->` and compared
+  **semantically**. A file written by a newer rtk-sf is left untouched, and a
+  re-run on a current file is a no-op. A version stamp can express "newer than
+  me"; a prose marker never could.
+- `CLAUDE.md.rtk-bak` is written before any change, and the block is replaced
+  **in place** — the previous code re-inserted it after line 1, reordering the
+  document. A file with no rtk-sf block is appended to rather than displaced.
+
+**`rtk-sf update --help` performed the update instead of printing help**
+
+The pre-parse intercept in `main()` uses `add_help=False` so it can tolerate
+unknown flags on older installs, which also meant it swallowed `-h`/`--help`
+and ran the upgrade — then re-ran `install`, which is how #35 was triggered.
+Help flags are now handled before anything executes.
+
+**`install` wrote one developer's interpreter path into a shared config**
+
+`_patch_claude_settings` baked `sys.executable` into `.claude/settings.json`
+hooks. That is correct inside a venv, but the file is commonly committed, so the
+path of whichever interpreter happened to run install reached the whole team —
+observed in #35 as an unrelated ESP-IDF environment that was merely first on
+`PATH`. The hook command now uses a portable `python3` when that interpreter can
+import `rtk_sf`, falling back to the absolute path only when it genuinely
+cannot. The file also keeps its trailing newline.
+
 ### Planned
 - Permission Set indexing
 - Custom Label indexing
