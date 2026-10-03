@@ -33,5 +33,15 @@ dist/architecture_map.html
 .vscode/
 *.code-workspace
 
+# Claude Code — per-developer, per-machine.
+# settings.json is the shared, committed config; settings.local.json holds one
+# developer's absolute paths and permission rules and must never be committed.
+# A global ~/.config/git/ignore rule only protects the machine that has it, so
+# the rule belongs here, where it travels with the repo.
+.claude/settings.local.json
+
+# Tool caches
+.ruff_cache/
+
 # Distribution / packaging
 MANIFEST
