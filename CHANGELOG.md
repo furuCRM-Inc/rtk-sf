@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+**`rtk-sf index` reported a no-op without saying why**
+
+On a project in another language the output was `Indexed: 0, Skipped: N
+(unchanged)` and nothing more. Wrong twice over: those files had never been
+indexed, so they were not "unchanged", and the files the project is actually
+made of were not counted at all — anything outside
+`.cls/.xml/.trigger/.page/.component` was passed over silently. The run read as
+a malfunction rather than as "there is no Salesforce metadata here", and the
+printed `Source path` showed the `force-app` directory even when `index_project`
+had fallen back to scanning the project root.
+
+`index_project` now distinguishes **unchanged** (indexed before, mtime
+unchanged), **unrecognized** (matching extension, no Salesforce metadata
+inside), and **unsupported** (an extension the indexer does not read, reported
+with a per-suffix count). It also returns `search_root`, so the CLI prints the
+directory it actually scanned. `skipped` is unchanged as the sum of the first
+two, so existing callers keep working.
+
+When nothing was indexed the CLI now explains it: what the indexer recognises,
+how many files fell into each category, that the index layer is Salesforce-only
+and the other language tracks work per file via their own MCP tools, and how to
+point the indexer somewhere else. A second run with nothing to do reports that
+plainly instead of warning.
+
 ### Planned
 - Permission Set indexing
 - Custom Label indexing

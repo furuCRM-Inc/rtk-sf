@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import re
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -1562,7 +1563,21 @@ class SalesforceIndexer:
             search_root = self.project_root
             logger.info("force-app not found; scanning project root: %s", search_root)
 
-        counters = {"indexed": 0, "skipped": 0, "errors": 0}
+        # `skipped` is kept as the sum of unchanged + unrecognized so existing
+        # callers keep working, but it is not a useful number on its own: a file
+        # that was never indexed is not "unchanged", and reporting it that way
+        # is what makes a run on a non-Salesforce project look like a no-op with
+        # no cause. The breakdown below is what the CLI actually prints.
+        counters = {
+            "indexed": 0,
+            "skipped": 0,
+            "errors": 0,
+            "unchanged": 0,      # already indexed, mtime unchanged
+            "unrecognized": 0,   # right extension, not Salesforce metadata
+            "unsupported": 0,    # extension the indexer does not handle at all
+            "search_root": str(search_root),
+        }
+        unsupported_suffixes: Counter[str] = Counter()
 
         # Walk all .cls, .xml, .trigger, .page, .component files
         extensions = {".cls", ".xml", ".trigger", ".page", ".component"}
@@ -1572,19 +1587,35 @@ class SalesforceIndexer:
             for fname in files:
                 file_path = Path(root) / fname
                 if file_path.suffix.lower() not in extensions:
+                    # Counted rather than silently passed over: on a project in
+                    # another language this is the only signal that files were
+                    # seen and nothing in them was indexable.
+                    if file_path.suffix:
+                        counters["unsupported"] += 1
+                        unsupported_suffixes[file_path.suffix.lower()] += 1
                     continue
                 # Skip meta.xml companion files for Apex (they carry no useful info)
                 if fname.endswith(".cls-meta.xml") or fname.endswith(".trigger-meta.xml"):
                     continue
                 try:
+                    # Asked before indexing: `index_file` returns False both for
+                    # "unchanged since last run" and "not metadata I understand",
+                    # and those need telling apart.
+                    was_stale = self.registry.is_stale(file_path)
                     result = self.index_file(file_path)
                     if result:
                         counters["indexed"] += 1
                     else:
                         counters["skipped"] += 1
+                        if was_stale:
+                            counters["unrecognized"] += 1
+                        else:
+                            counters["unchanged"] += 1
                 except Exception as exc:
                     logger.error("Error indexing %s: %s", file_path, exc)
                     counters["errors"] += 1
+
+        counters["unsupported_suffixes"] = dict(unsupported_suffixes.most_common(8))
 
         # Scan LWC bundles
         lwc_root = search_root / "main" / "default" / "lwc"
@@ -1597,6 +1628,7 @@ class SalesforceIndexer:
                             counters["indexed"] += 1
                         else:
                             counters["skipped"] += 1
+                            counters["unchanged"] += 1
                     except Exception as exc:
                         logger.error("Error indexing LWC bundle %s: %s", bundle_dir, exc)
                         counters["errors"] += 1

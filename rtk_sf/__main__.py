@@ -556,6 +556,46 @@ def cmd_setup(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 
+def _explain_empty_index(counters: dict) -> None:
+    """Say why a run indexed nothing, instead of leaving a bare 'Indexed : 0'.
+
+    On a project in another language the old output was `Indexed: 0,
+    Skipped: N (unchanged)` — which is wrong twice over: the files were never
+    indexed, so they were not "unchanged", and the files that actually make up
+    the project were not counted at all. The result read as a malfunction rather
+    than as "there is no Salesforce metadata here".
+    """
+    print()
+    if counters.get("unchanged") and not counters.get("unrecognized"):
+        _success("Nothing to do — every indexed file is already up to date.")
+        return
+
+    _warn("No Salesforce metadata was indexed.")
+    print()
+    print("  rtk-sf's indexer recognises Salesforce DX metadata:")
+    print("    .cls / .trigger / .page / .component, object and field XML,")
+    print("    flows, record types, LWC and Aura bundles.")
+    print()
+    if counters.get("unsupported"):
+        print(f"  {counters['unsupported']} file(s) were a type the indexer does not read.")
+    if counters.get("unrecognized"):
+        print(
+            f"  {counters['unrecognized']} file(s) had a matching extension but no "
+            "recognisable Salesforce metadata inside."
+        )
+    print()
+    print("  If this is not a Salesforce project, that is expected — the index")
+    print("  layer is Salesforce-only. The other language tracks work per file,")
+    print("  with no index, via these MCP tools:")
+    print("    Java        get_java_skeleton, run_java_build")
+    print("    Kotlin      get_kotlin_skeleton, run_gradle")
+    print("    TypeScript  get_ts_skeleton, run_js_tests")
+    print("    Python      get_python_skeleton, run_python_tests")
+    print()
+    print("  If it *is* a Salesforce project, check the source path above and")
+    print("  point the indexer at it explicitly:  rtk-sf index --path <dir>")
+
+
 def cmd_index(args: argparse.Namespace) -> int:
     """Index the Salesforce project metadata."""
     from rtk_sf.indexer import SalesforceIndexer
@@ -564,17 +604,31 @@ def cmd_index(args: argparse.Namespace) -> int:
     project_root = Path(args.project_root).resolve()
     force_app = Path(args.path).resolve() if args.path else None
 
-    print(f"rtk-sf indexer starting...")
+    print("rtk-sf indexer starting...")
     print(f"  Project root : {project_root}")
-    print(f"  Source path  : {force_app or project_root / 'force-app'}")
 
     indexer = SalesforceIndexer(project_root)
     counters = indexer.index_project(force_app)
 
-    print(f"\nIndexing complete:")
+    # The real search root, not the assumed one: index_project falls back to the
+    # project root when force-app is absent, and printing the path it did *not*
+    # use sent people looking in the wrong place.
+    print(f"  Source path  : {counters.get('search_root', force_app or project_root)}")
+
+    print("\nIndexing complete:")
     print(f"  Indexed : {counters['indexed']}")
-    print(f"  Skipped : {counters['skipped']} (unchanged)")
+    if counters.get("unchanged"):
+        print(f"  Unchanged : {counters['unchanged']} (already indexed, not modified)")
+    if counters.get("unrecognized"):
+        print(f"  Not Salesforce metadata : {counters['unrecognized']}")
+    if counters.get("unsupported"):
+        suffixes = counters.get("unsupported_suffixes") or {}
+        detail = ", ".join(f"{ext} ×{n}" for ext, n in suffixes.items())
+        print(f"  Unsupported file types : {counters['unsupported']}" + (f" ({detail})" if detail else ""))
     print(f"  Errors  : {counters['errors']}")
+
+    if counters["indexed"] == 0:
+        _explain_empty_index(counters)
 
     if counters["indexed"] > 0:
         print(f"\nPopulating search database...")
