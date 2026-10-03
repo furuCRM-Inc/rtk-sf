@@ -995,6 +995,116 @@ _TOOLS: list[dict[str, Any]] = [
             },
         },
     },
+    {
+        "name": "hybrid_plan",
+        "description": (
+            "Route an Apex class method-by-method between a local worker model and yourself. "
+            "Scores each method deterministically from its own source (cyclomatic-style score, "
+            "LOC, SOQL/DML counts, nesting) and flags risk signals that force a method to you "
+            "regardless of size: DML/SOQL in loops, Savepoint/rollback, partial DML, callouts, "
+            "'without sharing', FLS/CRUD checks, batch Apex. Constructors and spans that cannot "
+            "be safely replaced are excluded. Returns a compact routing table plus any handover "
+            "state newer than 'since'. Call this before delegating."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "component_name": {"type": "string", "description": "Apex class name, e.g. 'AccountService'."},
+                "since": {
+                    "type": "integer",
+                    "description": "Handover revision you have already seen; only newer records are returned.",
+                    "default": 0,
+                },
+                "allow_medium": {
+                    "type": "boolean",
+                    "description": "Also route MEDIUM-tier methods to the local worker. Off by default.",
+                    "default": False,
+                },
+                "worker_model": {
+                    "type": "string",
+                    "description": (
+                        "Pin an exact model tag, e.g. a finetune like 'qwen2.5-coder-7b-nexusmesh'. "
+                        "Auto-detection only recognizes known coder model names, so a custom "
+                        "finetune must be pinned here or via RTK_SF_WORKER_MODEL."
+                    ),
+                },
+                "worker_url": {
+                    "type": "string",
+                    "description": (
+                        "Base URL of the worker daemon. Defaults to http://localhost:11434, or "
+                        "RTK_SF_WORKER_URL. Use this for a remote host, e.g. "
+                        "'http://mac-mini.local:11434'."
+                    ),
+                },
+            },
+            "required": ["component_name"],
+        },
+    },
+    {
+        "name": "hybrid_delegate",
+        "description": (
+            "Hand a batch of method-scoped Apex edits to the local worker. Each task names one "
+            "method and one instruction; the worker receives that method plus a collapsed class "
+            "skeleton, never the whole file. Output is gated before anything is written: it must "
+            "be untruncated, parse as exactly the requested method, balance braces and literals, "
+            "and leave every other method body byte-identical. Rejected output is never written "
+            "and its gate verdict becomes correction memory for the next attempt. Pass all tasks "
+            "in ONE call — do not loop one call per method. Completed methods are verified "
+            "structurally, not semantically: run the class's tests to judge behaviour."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "component_name": {"type": "string", "description": "Apex class name."},
+                "tasks": {
+                    "type": "array",
+                    "description": "Method-scoped tasks to run in one batch.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "method": {"type": "string", "description": "Exact method name."},
+                            "instruction": {
+                                "type": "string",
+                                "description": "What to change, stated so it can be judged from the method alone.",
+                            },
+                        },
+                        "required": ["method", "instruction"],
+                    },
+                },
+                "allow_medium": {"type": "boolean", "default": False},
+                "worker_model": {"type": "string", "description": "Pin an exact model tag (see hybrid_plan)."},
+                "worker_url": {"type": "string", "description": "Worker daemon base URL (see hybrid_plan)."},
+            },
+            "required": ["component_name", "tasks"],
+        },
+    },
+    {
+        "name": "hybrid_review",
+        "description": (
+            "Record a review finding against one method, or read the handover delta. With "
+            "'critique', the finding is stored as a few-shot example for the next local attempt "
+            "at that method (with the failing method body, not the whole file); once the method "
+            "passes, the critique is distilled into a code-free project rule that applies to "
+            "every other method. Without 'critique', returns only handover records newer than "
+            "'since' — tens of tokens instead of the whole log."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "component_name": {"type": "string", "description": "Apex class name."},
+                "method": {"type": "string", "description": "Method the finding applies to. Required with 'critique'."},
+                "critique": {
+                    "type": "string",
+                    "description": (
+                        "What was wrong and what to do instead, written as an instruction the "
+                        "worker can act on. Omit to read state instead of writing."
+                    ),
+                },
+                "since": {"type": "integer", "description": "Revision watermark for reads.", "default": 0},
+            },
+            "required": ["component_name"],
+        },
+    },
 ]
 
 
@@ -1135,6 +1245,12 @@ class MCPServer:
                 result = self._tool_export_documentation(arguments)
             elif tool_name == "get_project_timeline":
                 result = self._tool_get_project_timeline(arguments)
+            elif tool_name == "hybrid_plan":
+                result = self._tool_hybrid_plan(arguments)
+            elif tool_name == "hybrid_delegate":
+                result = self._tool_hybrid_delegate(arguments)
+            elif tool_name == "hybrid_review":
+                result = self._tool_hybrid_review(arguments)
             else:
                 self._write(self._error(request_id, -32601, f"Unknown tool: {tool_name}"))
                 return
@@ -1466,6 +1582,50 @@ class MCPServer:
             return f"Error: {exc}"
         manager.save()  # persist any roll-up the read triggered
         return json.dumps(data, ensure_ascii=False, indent=2)
+
+    def _hybrid(self, args: dict) -> Any:
+        """Build an Orchestrator from tool arguments and the environment."""
+        import os
+
+        from rtk_sf.hybrid.orchestrator import Orchestrator
+
+        return Orchestrator(
+            self.project_root,
+            base_url=args.get("worker_url") or os.environ.get("RTK_SF_WORKER_URL") or None,
+            model=args.get("worker_model") or None,
+            allow_medium=bool(args.get("allow_medium", False)),
+        )
+
+    def _tool_hybrid_plan(self, args: dict) -> str:
+        component = args.get("component_name", "").strip()
+        if not component:
+            return "Error: component_name is required."
+        return self._hybrid(args).plan(component, since=int(args.get("since", 0) or 0))
+
+    def _tool_hybrid_delegate(self, args: dict) -> str:
+        component = args.get("component_name", "").strip()
+        if not component:
+            return "Error: component_name is required."
+        tasks = args.get("tasks")
+        if not isinstance(tasks, list) or not tasks:
+            return "Error: tasks must be a non-empty array of {method, instruction}."
+        clean = [t for t in tasks if isinstance(t, dict)]
+        if not clean:
+            return "Error: each task must be an object with 'method' and 'instruction'."
+        return self._hybrid(args).delegate(component, clean)
+
+    def _tool_hybrid_review(self, args: dict) -> str:
+        component = args.get("component_name", "").strip()
+        if not component:
+            return "Error: component_name is required."
+        critique = str(args.get("critique", "") or "").strip()
+        orch = self._hybrid(args)
+        if not critique:
+            return orch.state(component, since=int(args.get("since", 0) or 0))
+        method = str(args.get("method", "") or "").strip()
+        if not method:
+            return "Error: method is required when recording a critique."
+        return orch.critique(component, method, critique)
 
     def _tool_search(self, args: dict) -> str:
         query = args.get("query", "").strip()

@@ -388,7 +388,7 @@ Because rtk-sf is installed straight from git rather than PyPI, `pip install --u
 ```bash
 # Pin to a release tag (recommended — matches what CHANGELOG.md/Releases describe).
 # Replace the tag with the latest one: https://github.com/furuCRM-Inc/rtk-sf/releases
-pip install --upgrade --force-reinstall --no-deps "rtk-sf[all] @ git+https://github.com/furuCRM-Inc/rtk-sf.git@v0.10.3"
+pip install --upgrade --force-reinstall --no-deps "rtk-sf[all] @ git+https://github.com/furuCRM-Inc/rtk-sf.git@v0.11.0"
 
 # Or track main's latest commit
 pip install --upgrade --force-reinstall --no-deps "rtk-sf[all] @ git+https://github.com/furuCRM-Inc/rtk-sf.git@main"
