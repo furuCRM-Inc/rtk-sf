@@ -54,13 +54,13 @@ hand-written `complexity: LOW` label, which drifts the moment the code changes.
   checks, batch Apex, email send. A three-line method that opens a Savepoint is
   not simple at any length.
 * **flags** — add weight without vetoing the route. `@AuraEnabled` lives here:
-  measured against TokyoEdu, treating it as a blocker forced 60 of 179 methods
+  measured against a production Salesforce project, treating it as a blocker forced 60 of 179 methods
   to Claude on a normal LWC project, which makes delegation pointless.
 * **constructors and non-splice-safe spans** are excluded. `_METHOD_SIG` cannot
   express "has no return type", so a constructor matches only by capturing an
   access modifier as its return type; a worker told to keep the signature will
   "fix" that by adding a return type, silently converting a constructor into a
-  method. 20 such spans exist in TokyoEdu.
+  method. 20 such spans exist in that project.
 
 ## The gate
 

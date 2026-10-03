@@ -3,8 +3,8 @@
 ### Summary
 
 - **Annotation system** (`annotate_component`) — AI agents can now write discovered business logic back into the index; the knowledge persists across sessions at zero additional token cost
-- **Japanese full-text search** — FTS5 trigram tokenizer + LIKE fallback for 1–2 char terms; `申込`, `不備`, `管理職` all return correct results
-- **CamelCase splitting** — `ExamTicketDownloadController` is indexed as `Exam Ticket Download Controller`; partial English searches work without knowing the exact component name
+- **Japanese full-text search** — FTS5 trigram tokenizer + LIKE fallback for 1–2 char terms; `申込`, `不備`, `責任者` all return correct results
+- **CamelCase splitting** — `ReportDownloadController` is indexed as `Report Download Controller`; partial English searches work without knowing the exact component name
 - **44+ metadata types** — expanded from 4 to full sf CLI coverage (Agentforce, OmniStudio, Experience Cloud, Analytics, and more)
 - **Docs & README** — viral launch optimizations: Before/After comparison, team ROI calculator, one-liner install, Claude Code focus
 
@@ -15,14 +15,14 @@
 ```
 # First session: Claude discovers hidden logic in source
 annotate_component(
-  component_name = "Application__c",
+  component_name = "Entry__c",
   key            = "business_rule",
-  value          = "Correction only allowed when Status__c = '不備'. Owner check via EligibleStaff__r.Contact__c.",
+  value          = "Correction only allowed when Status__c = '不備'. Owner check via Owner__r.Contact__c.",
   source         = "ai_discovery"
 )
 
 # All future sessions — zero source reads
-query_compressed_spec("Application__c")
+query_compressed_spec("Entry__c")
 # → YAML spec + ## Annotations (discovered business logic)
 #   [business_rule] (ai_discovery · 2026-09-06)
 #     Correction only allowed when Status__c = '不備'. ...
@@ -50,7 +50,7 @@ query_compressed_spec("Application__c")
 
 - [x] 69/70 automated checks passed (1 false negative: `申込済み` not in indexed data — correct behavior)
 - [x] Japanese 2-char LIKE fallback: `申込`, `不備`, `選考` all return results
-- [x] Japanese 3-char trigram: `主任教諭`, `管理職`, `不備修正` all return results
+- [x] Japanese 3-char trigram: `主任`, `責任者`, `不備修正` all return results
 - [x] CamelCase: `search("ApplicationSubmission")` returns `ApplicationSubmissionController`
 - [x] `annotate_component` → annotation stored → searchable → returned in `query_compressed_spec`
 - [x] All 5 MCP tools dispatch correctly via JSON-RPC 2.0

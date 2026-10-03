@@ -298,7 +298,7 @@ def test_describe_rejects_arguments_it_cannot_use(bad_arg):
 
 def test_rejection_lists_what_the_action_does_accept():
     with pytest.raises(ValueError) as exc:
-        _build_command("describe", {"metadata": "Application__c"})
+        _build_command("describe", {"metadata": "Entry__c"})
     assert "target_org" in str(exc.value)
 
 
@@ -325,7 +325,7 @@ def test_unknown_action_is_reported_with_the_valid_set():
 
 
 def test_describe_with_sobject_routes_to_describe_object():
-    assert _resolve_action("describe", {"sobject": "Application__c"}) == "describe_object"
+    assert _resolve_action("describe", {"sobject": "Entry__c"}) == "describe_object"
 
 
 def test_describe_without_sobject_stays_on_the_org():
@@ -333,9 +333,9 @@ def test_describe_without_sobject_stays_on_the_org():
 
 
 def test_describe_object_builds_the_sobject_command():
-    cmd = _build_command("describe_object", {"sobject": "Application__c", "target_org": "dev01"})
+    cmd = _build_command("describe_object", {"sobject": "Entry__c", "target_org": "dev01"})
     assert cmd[:4] == ["sf", "sobject", "describe", "--json"]
-    assert cmd[cmd.index("--sobject") + 1] == "Application__c"
+    assert cmd[cmd.index("--sobject") + 1] == "Entry__c"
 
 
 def test_describe_object_without_sobject_explains_itself():
@@ -347,7 +347,7 @@ def test_describe_object_without_sobject_explains_itself():
 _DESCRIBE_OBJECT = {
     "status": 0,
     "result": {
-        "name": "Application__c",
+        "name": "Entry__c",
         "label": "申込",
         "custom": True,
         "keyPrefix": "a0X",
@@ -368,13 +368,13 @@ _DESCRIBE_OBJECT = {
 
 def test_describe_object_summarizes_without_dumping_fields():
     out = _summarize_describe_object(_DESCRIBE_OBJECT, 1.5)
-    assert out.startswith("✅ Application__c (申込) [custom]")
+    assert out.startswith("✅ Entry__c (申込) [custom]")
     assert "Fields: 3 (2 custom, 1 required)" in out
     assert "Record types: 1" in out
     assert "Key prefix: a0X" in out
     # No field dump — that is what get_object_schema is for.
     assert "BirthDate__c" not in out
-    assert 'get_object_schema("Application__c")' in out
+    assert 'get_object_schema("Entry__c")' in out
 
 
 def test_describe_object_reports_only_granted_permissions():

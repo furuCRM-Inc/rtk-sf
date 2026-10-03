@@ -374,7 +374,7 @@ _TOOLS: list[dict[str, Any]] = [
                 "sobject": {
                     "type": "string",
                     "description": (
-                        "Object API name for describe_object (e.g. 'Application__c'). "
+                        "Object API name for describe_object (e.g. 'Entry__c'). "
                         "Passing it to 'describe' runs describe_object instead."
                     ),
                 },
@@ -454,7 +454,7 @@ _TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "object_name": {
                     "type": "string",
-                    "description": "Salesforce object API name, e.g. 'Application__c' or 'Order__c'.",
+                    "description": "Salesforce object API name, e.g. 'Entry__c' or 'Order__c'.",
                 },
                 "project_dir": {
                     "type": "string",
@@ -907,7 +907,7 @@ _TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "component_name": {
                     "type": "string",
-                    "description": "Exact component name to annotate (e.g. 'Application__c').",
+                    "description": "Exact component name to annotate (e.g. 'Entry__c').",
                 },
                 "key": {
                     "type": "string",
