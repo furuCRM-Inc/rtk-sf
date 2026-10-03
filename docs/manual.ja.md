@@ -284,7 +284,7 @@ export RTK_SF_WORKER_MODEL=qwen2.5-coder-7b-nexusmesh
 `hybrid_plan` の出力例:
 
 ```
-plan CsvImportController (CsvImportController.cls, 7 methods)
+plan RecordImportController (RecordImportController.cls, 7 methods)
 worker: local:qwen2.5-coder:7b
 local tiers: LOW only
 

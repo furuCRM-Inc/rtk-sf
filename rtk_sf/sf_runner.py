@@ -83,7 +83,7 @@ _ACTION_ARGS: dict[str, frozenset[str]] = {
     "retrieve": _COMMON_ARGS | {"source_dir", "metadata", "wait"},
     "run_test": _COMMON_ARGS | {"test_level", "class_names", "wait"},
     # `sobject` on `describe` is accepted and routed to describe_object: asking
-    # to "describe Application__c" is a reasonable reading of the action name.
+    # to "describe Entry__c" is a reasonable reading of the action name.
     "describe": _COMMON_ARGS | {"sobject"},
     "describe_object": _COMMON_ARGS | {"sobject"},
 }
@@ -156,7 +156,7 @@ def _build_command(action: str, args: dict[str, Any]) -> list[str]:
         if not sobject:
             raise ValueError(
                 "describe_object needs sobject — the object's API name "
-                "(e.g. sobject=\"Application__c\")."
+                "(e.g. sobject=\"Entry__c\")."
             )
         cmd += ["--sobject", sobject]
 

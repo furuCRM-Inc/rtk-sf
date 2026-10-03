@@ -51,7 +51,7 @@ _TRY = re.compile(r"\btry\s*\{", re.IGNORECASE)
 #     public RowResult(Integer idx, Boolean ok, String msg) {
 #     ^mods=""  ^ret="public"      ^name="RowResult"
 #
-# Verified on TokyoEdu: `CsvImportController.RowResult` is detected this way and
+# Verified on a production Salesforce project: `RecordImportController.RowResult` is detected this way and
 # was being routed to the local worker as a LOW-complexity method. The worker is
 # told to keep the name and signature, so its most likely repair of an
 # "invalid" declaration is to add a return type — silently turning a
@@ -67,7 +67,7 @@ _MODIFIER_WORDS = frozenset(
 
 # Hard blockers. Presence forces tier HIGH — a wrong edit here costs data,
 # security, or governor headroom, and a small model has no way to know what it
-# does not know. Measured against TokyoEdu (179 real methods) when tuning:
+# does not know. Measured against a production Salesforce project (179 real methods) when tuning:
 # these fire on 42 methods, which is the intended shape.
 _BLOCKERS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
@@ -92,7 +92,7 @@ _BLOCKERS: tuple[tuple[str, re.Pattern[str]], ...] = (
 )
 
 # Risk flags. These do NOT force HIGH — they add weight and raise the required
-# verification depth. Measured on TokyoEdu: treating @AuraEnabled as a hard
+# verification depth. Measured on a production Salesforce project: treating @AuraEnabled as a hard
 # blocker forced 60 of 179 methods (34%) to Claude on a normal LWC-based
 # project, which makes delegation pointless. An @AuraEnabled one-line getter is
 # an entry point worth testing, not work a 7B cannot do — so it raises the gate
@@ -317,7 +317,7 @@ def extract_methods(source: str) -> list[MethodUnit]:
     cannot express "has no return type", so an inner-class constructor
     (`public SaveTableResult(String x) {`) matches only by borrowing preceding
     text as its return type — the resulting span is not a real method and must
-    never be replaced. Verified against TokyoEdu: 2 of 179 detections are this
+    never be replaced. Verified against a production Salesforce project: 2 of 179 detections are this
     shape, and both are now marked unsafe rather than offered for delegation.
     """
     units: list[MethodUnit] = []

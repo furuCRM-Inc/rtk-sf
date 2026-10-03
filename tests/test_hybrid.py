@@ -2,13 +2,14 @@
 Pins the invariants that make hybrid delegation safe to trust unread.
 
 Each test corresponds to a failure found while verifying the design against the
-TokyoEdu project (25 Apex files, 179 detected methods) and a live
+production Salesforce project (25 Apex files, 179 detected methods) and a live
 qwen2.5-coder:7b worker. No test here contacts a model — the worker boundary is
 exercised through `gate.py`, which is where the trust decision actually lives.
 """
 
 from __future__ import annotations
 
+import os
 import pathlib
 
 import pytest
@@ -68,7 +69,7 @@ def test_risk_signals_force_high_regardless_of_size():
 
 
 def test_aurenabled_is_a_flag_not_a_blocker():
-    """Measured on TokyoEdu: treating @AuraEnabled as a hard blocker forced 60
+    """Measured on a production Salesforce project: treating @AuraEnabled as a hard blocker forced 60
     of 179 methods to Claude, which makes delegation pointless on any
     LWC-based project. It raises the score instead of vetoing the route."""
     unit = find_method(SOURCE, "remoteGetter")
@@ -317,10 +318,18 @@ def test_lessons_are_deduplicated(tmp_path):
 # Corpus-level invariant
 # ---------------------------------------------------------------------------
 
-_CORPUS = pathlib.Path("/Users/hoangkagawa/TokyoEdu/force-app")
+# Point this at any real Salesforce source tree to run the corpus regression:
+#   RTK_SF_TEST_CORPUS=/path/to/project/force-app pytest tests/test_hybrid.py
+# No path is hardcoded — a customer's project layout is not ours to publish,
+# and an absolute home path would only ever work on one machine.
+_CORPUS_ENV = os.environ.get("RTK_SF_TEST_CORPUS")
+_CORPUS = pathlib.Path(_CORPUS_ENV) if _CORPUS_ENV else None
 
 
-@pytest.mark.skipif(not _CORPUS.exists(), reason="TokyoEdu corpus not present")
+@pytest.mark.skipif(
+    _CORPUS is None or not _CORPUS.exists(),
+    reason="set RTK_SF_TEST_CORPUS to a Salesforce force-app directory to run this",
+)
 def test_identity_splice_is_byte_exact_across_real_corpus():
     """The regression that matters: run every real method through the splice
     path and require the file back unchanged. This is what caught both the

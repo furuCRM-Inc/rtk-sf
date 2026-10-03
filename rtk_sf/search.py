@@ -599,7 +599,7 @@ class SearchEngine:
         it becomes searchable immediately without a full re-index.
 
         Args:
-            component_name: Exact component name (e.g. "Application__c").
+            component_name: Exact component name (e.g. "Entry__c").
             key: Short label for the annotation (e.g. "business_rule", "condition").
             value: Free-text description of the discovered logic.
             source: Origin tag (e.g. "ai_discovery", "manual", "code_review").
@@ -987,7 +987,7 @@ class SearchEngine:
         Insert spaces before uppercase letters to split camelCase/PascalCase
         identifiers into searchable words.
 
-        Example: "ExamTicketDownloadController" → "Exam Ticket Download Controller"
+        Example: "ReportDownloadController" → "Report Download Controller"
         """
         import re
         # Insert space before uppercase letter followed by lowercase
@@ -1004,7 +1004,7 @@ class SearchEngine:
 
         Appends camelCase-split versions of all identifiers so that FTS5 can
         match individual word fragments (e.g. 'exam' matches
-        'ExamTicketDownloadController').
+        'ReportDownloadController').
         """
         import re
         # Extract all identifiers from the YAML

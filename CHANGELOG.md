@@ -222,7 +222,7 @@ before the command runs.
 **Japanese search found the wrong components (request B)**
 
 `search_codebase("セルフ登録 職員番号 生年月日 有資格者リスト")` returned
-`Application__c.BirthDate__c` and `Application__c.StaffNumber__c` — two leaf fields —
+`Entry__c.BirthDate__c` and `Entry__c.StaffNumber__c` — two leaf fields —
 while the LWC `selfRegistration` and the Apex `SelfRegistrationController` /
 `SelfRegistrationService` that implement the feature did not appear at all, and
 `"セルフ登録"` alone returned 0 where `"register"` found all three.

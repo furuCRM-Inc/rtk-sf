@@ -278,7 +278,7 @@ it is the right worker.
 A plan looks like this:
 
 ```
-plan CsvImportController (CsvImportController.cls, 7 methods)
+plan RecordImportController (RecordImportController.cls, 7 methods)
 worker: local:qwen2.5-coder:7b
 local tiers: LOW only
 

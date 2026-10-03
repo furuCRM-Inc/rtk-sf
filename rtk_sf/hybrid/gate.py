@@ -128,7 +128,7 @@ def reindent(candidate: str, indent: str) -> str:
     column 0, with a 4-space body. Splicing that into a class leaves the
     signature correct (the original indent is re-applied) but every interior
     line under-indented, which is valid Apex and so passes every syntax check
-    while producing a noisy, review-hostile diff. Verified on a real TokyoEdu
+    while producing a noisy, review-hostile diff. Verified on a real production
     method: the body came back at 4 spaces where the file uses 8.
 
     The candidate is dedented by its own base indent, then re-indented by the
@@ -224,7 +224,7 @@ def check_method_replacement(
     # validation. Re-applying the original indentation is what keeps an
     # identity splice byte-identical — without it every delegated method is
     # silently re-indented to column 0, which is still valid Apex and so would
-    # never be caught by a syntax check. Verified across 177 real TokyoEdu
+    # never be caught by a syntax check. Verified across 177 real production
     # methods: identity splice now reproduces each file exactly.
     original_span = original_source[target.sig_start : target.body_close + 1]
     indent = original_span[: len(original_span) - len(original_span.lstrip())]

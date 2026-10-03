@@ -143,7 +143,7 @@ def detect_worker(
 
     `model` pins an exact tag and skips preference ranking. This matters for a
     finetune: auto-detection ranks by name substring, so a custom model called
-    e.g. `tokyoedu-apex:latest` matches no known coder prefix and would be
+    e.g. `acme-apex:latest` matches no known coder prefix and would be
     rejected as "no code-tuned model" despite being the best worker available.
     A pinned tag is also the only way to choose between two viable models.
     Set it via the RTK_SF_WORKER_MODEL environment variable or the tool
