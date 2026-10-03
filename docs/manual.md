@@ -227,17 +227,21 @@ If search returns nothing, the index is usually just stale or missing — run
 A global `--project-root DIR` works on every command, so you can drive a project
 from outside it.
 
-> **Caution — `install` and `update`.** `install` **overwrites** `CLAUDE.md`
-> with a bundled template. If you have customised that file, your edits are
-> replaced; the bundled template currently also lags behind the tool list, so
-> newer tools can disappear from Claude's guidance. It additionally writes the
-> *absolute path* of whichever `python3` resolved at the time into
-> `.claude/settings.json` hooks, which breaks if that interpreter moves.
-> `update` re-runs `install`, and `rtk-sf update --help` **executes** the update
-> rather than printing help.
+> **What `install` does to `CLAUDE.md`.** It refreshes the rtk-sf guidance
+> block, delimited by `<!-- rtk-sf:begin <version> -->`. Since 0.11.0 that is
+> safe to re-run: the tool table is generated from the tools the installed
+> package actually serves, the block is replaced in place so your own sections
+> keep their position, the previous file is saved as `CLAUDE.md.rtk-bak`, and a
+> block written by a *newer* rtk-sf is left alone rather than downgraded.
+> Anything you wrote **inside** the block is still replaced, so keep your own
+> notes in their own section.
 >
-> The two-step setup in §3 does not have these side effects. Prefer it, and
-> commit `CLAUDE.md` before running `install` if you do use it.
+> Hooks in `.claude/settings.json` use a portable `python3` when that
+> interpreter can import `rtk_sf`, and an absolute path only when it cannot —
+> so a committed `settings.json` stays usable across a team.
+>
+> The two-step setup in §3 remains the smaller-footprint option if you would
+> rather manage `CLAUDE.md` entirely yourself.
 
 ---
 
